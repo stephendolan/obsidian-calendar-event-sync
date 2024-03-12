@@ -1,14 +1,14 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, request } from "obsidian";
 
-// Remember to rename these classes and interfaces!
+import * as ical from "node-ical";
 
 interface MyPluginSettings {
-	mySetting: string;
+	calendarICSUrl: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
+	calendarICSUrl: "default",
+};
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -16,94 +16,110 @@ export default class MyPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
+			id: "update-note-title-from-calendar",
+			name: "Sync with Event",
+			callback: () => this.updateNote(),
 		});
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
 	}
 
-	onunload() {
+	async updateNote() {
+		const icsUrl = this.settings.calendarICSUrl;
 
+		try {
+			const response = await request({
+				url: icsUrl,
+				method: "GET",
+			});
+
+			const events = ical.sync.parseICS(response);
+			const currentEvent = this.findCurrentOrUpcomingEvent(events);
+
+			if (currentEvent) {
+				await this.syncNoteWithEvent(currentEvent);
+			} else {
+				console.log("No current event found.");
+			}
+		} catch (error) {
+			console.error("Failed to fetch or parse ICS file:", error);
+		}
 	}
+
+	findCurrentOrUpcomingEvent(events: any) {
+		const now = new Date();
+		let upcomingEvent = null;
+		for (let k in events) {
+			if (events.hasOwnProperty(k)) {
+				const event = events[k];
+				if (events[k].type == "VEVENT") {
+					const eventStart = event.start;
+					const eventEnd = event.end;
+					if (now >= eventStart && now <= eventEnd) {
+						return event; // return current event immediately
+					} else if (now < eventStart) {
+						// if no current event is found, store the first upcoming event
+						if (
+							!upcomingEvent ||
+							eventStart < upcomingEvent.start
+						) {
+							upcomingEvent = event;
+						}
+					}
+				}
+			}
+		}
+		return upcomingEvent; // return the next event if no current event is found
+	}
+
+	async syncNoteWithEvent(event: ical.VEvent) {
+		const eventSummary = event.summary;
+		const eventStart = event.start;
+		const formattedDate = eventStart.toISOString().split("T")[0]; // YYYY-MM-DD format
+		let newTitle = `📆 ${formattedDate}, ${eventSummary}`;
+
+		const activeFile = this.app.workspace.getActiveFile();
+		if (activeFile) {
+			const filePathParts = activeFile.path.split("/");
+			filePathParts[filePathParts.length - 1] = `${newTitle}.md`;
+
+			const newFilePath = filePathParts.join("/");
+			await this.app.vault.rename(activeFile, newFilePath);
+
+			let attendees = event.attendee;
+			console.log(attendees);
+			if (attendees) {
+				let attendeesList = "## Attendees:\n";
+
+				if (!Array.isArray(attendees)) {
+					attendees = [attendees];
+				}
+
+				attendees.forEach((attendee: any) => {
+					attendeesList += `- ${attendee.params.CN}\n`;
+				});
+
+				const fileContent = await this.app.vault.read(activeFile);
+				const newContent = `${attendeesList}\n${fileContent}`;
+				this.app.vault.modify(activeFile, newContent);
+			}
+		}
+	}
+
+	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await this.loadData()
+		);
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
 	}
 }
 
@@ -116,19 +132,23 @@ class SampleSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
+			.setName("Calendar ICS URL")
+			.setDesc("The secret URL where we can find your calendar events.")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter your ICS URL")
+					.setValue(this.plugin.settings.calendarICSUrl)
+					.onChange(async (value) => {
+						this.plugin.settings.calendarICSUrl = value;
+						console.log("Settings updated:", this.plugin.settings);
+						await this.plugin.saveSettings();
+						console.log("Settings saved:", this.plugin.settings);
+					})
+			);
 	}
 }

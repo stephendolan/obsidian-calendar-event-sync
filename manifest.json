@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
+	"id": "calendar-sync",
+	"name": "Calendar Sync",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Create and manage notes for calendar events.",
+	"author": "Stephen Dolan",
+	"authorUrl": "https://stephendolan.com",
+	"fundingUrl": "https://stephendolan.com/coaching",
 	"isDesktopOnly": false
 }
