@@ -1,6 +1,8 @@
 import {
+	TFile,
 	App,
 	Plugin,
+	Editor,
 	PluginSettingTab,
 	Setting,
 	Notice,
@@ -116,37 +118,61 @@ export default class MyPlugin extends Plugin {
 		return currentEvent || upcomingEvent || previousEvent;
 	}
 
-	async syncNoteWithEvent(event: ical.VEvent) {
+	generateAttendeesList(event: ical.VEvent) {
+		let attendeesList = "## Attendees:\n";
+
+		let attendees = event.attendee;
+		if (!attendees) return attendeesList;
+
+		if (!Array.isArray(attendees)) {
+			attendees = [attendees];
+		}
+
+		attendees.forEach((attendee: any) => {
+			attendeesList += `- ${attendee.params.CN}\n`;
+		});
+
+		return attendeesList;
+	}
+
+	async addAttendeesToActiveFile(attendeesList: string) {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) return;
+
+		const fileContent = await this.app.vault.read(activeFile);
+		const newContent = `${attendeesList}\n${fileContent}`;
+		await this.app.vault.modify(activeFile, newContent);
+	}
+
+	async renameActiveFile(newTitle: string) {
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) return;
+
+		const filePathParts = activeFile.path.split("/");
+		filePathParts[filePathParts.length - 1] = `${newTitle}.md`;
+		const newFilePath = filePathParts.join("/");
+		await this.app.vault.rename(activeFile, newFilePath);
+	}
+
+	generateTitleFromEvent(event: ical.VEvent) {
 		const eventSummary = event.summary;
 		const eventStart = event.start;
 		const formattedDate = eventStart.toISOString().split("T")[0]; // YYYY-MM-DD format
-		let newTitle = `📆 ${formattedDate}, ${eventSummary}`;
+		return `📆 ${formattedDate}, ${eventSummary}`;
+	}
 
-		const activeFile = this.app.workspace.getActiveFile();
-		if (activeFile) {
-			const filePathParts = activeFile.path.split("/");
-			filePathParts[filePathParts.length - 1] = `${newTitle}.md`;
+	moveCursorToEndOfFile() {
+		const editor = this.app.workspace.activeEditor?.editor;
+		if (!editor) return;
 
-			const newFilePath = filePathParts.join("/");
-			await this.app.vault.rename(activeFile, newFilePath);
+		const document = editor.getDoc();
+		document.setCursor(document.lineCount(), 0);
+	}
 
-			let attendees = event.attendee;
-			if (attendees) {
-				let attendeesList = "## Attendees:\n";
-
-				if (!Array.isArray(attendees)) {
-					attendees = [attendees];
-				}
-
-				attendees.forEach((attendee: any) => {
-					attendeesList += `- ${attendee.params.CN}\n`;
-				});
-
-				const fileContent = await this.app.vault.read(activeFile);
-				const newContent = `${attendeesList}\n${fileContent}`;
-				this.app.vault.modify(activeFile, newContent);
-			}
-		}
+	async syncNoteWithEvent(event: ical.VEvent) {
+		await this.renameActiveFile(this.generateTitleFromEvent(event));
+		await this.addAttendeesToActiveFile(this.generateAttendeesList(event));
+		this.moveCursorToEndOfFile();
 	}
 
 	onunload() {}
