@@ -74,8 +74,21 @@ export default class MyPlugin extends Plugin {
 		return now < eventStart && eventStart <= futureStartLimit;
 	}
 
+	eventIsRecent(eventEnd: Date) {
+		const now = new Date();
+		const recentEventHourLimit = 1;
+
+		const pastEndLimit = new Date(
+			now.getTime() - recentEventHourLimit * 60 * 60 * 1000
+		);
+
+		return pastEndLimit <= eventEnd && eventEnd < now;
+	}
+
 	findRelevantEvent(events: ical.CalendarResponse) {
-		let relevantEvent = null;
+		let currentEvent = null;
+		let upcomingEvent = null;
+		let previousEvent = null;
 
 		for (let eventId in events) {
 			if (!events.hasOwnProperty(eventId)) continue;
@@ -87,15 +100,20 @@ export default class MyPlugin extends Plugin {
 			if (event.summary === "Busy") continue;
 
 			if (this.eventIsHappeningNow(event)) {
-				return event;
+				currentEvent = event;
+				break;
 			} else if (this.eventIsUpcoming(event.start)) {
-				if (!relevantEvent || event.start < relevantEvent.start) {
-					relevantEvent = event;
+				if (!upcomingEvent || event.start < upcomingEvent.start) {
+					upcomingEvent = event;
+				}
+			} else if (this.eventIsRecent(event.end)) {
+				if (!previousEvent || event.end > previousEvent.end) {
+					previousEvent = event;
 				}
 			}
 		}
 
-		return relevantEvent;
+		return currentEvent || upcomingEvent || previousEvent;
 	}
 
 	async syncNoteWithEvent(event: ical.VEvent) {
