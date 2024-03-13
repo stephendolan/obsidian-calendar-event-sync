@@ -54,7 +54,14 @@ export default class MyPlugin extends Plugin {
 				new Notice("No current or upcoming events found.", 0);
 			}
 		} catch (error) {
-			new Notice(`Couldn't sync with calendar event: ${error}`, 0);
+			if (/404/.test(error)) {
+				new Notice(
+					"Couldn't sync with calendar events. Make sure your ICS URL is correct in the plugin settings.",
+					0
+				);
+			} else {
+				new Notice(`Couldn't sync with calendar event: ${error}`, 0);
+			}
 		}
 	}
 
@@ -170,9 +177,9 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async syncNoteWithEvent(event: ical.VEvent) {
-		await this.renameActiveFile(this.generateTitleFromEvent(event));
 		await this.addAttendeesToActiveFile(this.generateAttendeesList(event));
-		this.moveCursorToEndOfFile();
+		await this.renameActiveFile(this.generateTitleFromEvent(event));
+		// this.moveCursorToEndOfFile();
 	}
 
 	onunload() {}
