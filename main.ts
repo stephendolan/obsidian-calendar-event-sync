@@ -1,4 +1,11 @@
-import { App, Plugin, PluginSettingTab, Setting, request } from "obsidian";
+import {
+	App,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+	Notice,
+	request,
+} from "obsidian";
 
 import * as ical from "node-ical";
 
@@ -36,42 +43,59 @@ export default class MyPlugin extends Plugin {
 			});
 
 			const events = ical.sync.parseICS(response);
-			const currentEvent = this.findCurrentOrUpcomingEvent(events);
+
+			const currentEvent = this.findRelevantEvent(events);
 
 			if (currentEvent) {
 				await this.syncNoteWithEvent(currentEvent);
 			} else {
-				console.log("No current event found.");
+				new Notice("No current or upcoming events found.", 0);
 			}
 		} catch (error) {
-			console.error("Failed to fetch or parse ICS file:", error);
+			new Notice(`Couldn't sync with calendar event: ${error}`, 0);
 		}
 	}
 
-	findCurrentOrUpcomingEvent(events: any) {
+	eventIsHappeningNow(event: ical.VEvent) {
 		const now = new Date();
-		let upcomingEvent = null;
-		for (let k in events) {
-			if (events.hasOwnProperty(k)) {
-				const event = events[k];
-				if (events[k].type == "VEVENT") {
-					const eventStart = event.start;
-					const eventEnd = event.end;
-					if (now >= eventStart && now <= eventEnd) {
-						return event; // return current event immediately
-					} else if (now < eventStart) {
-						// if no current event is found, store the first upcoming event
-						if (
-							!upcomingEvent ||
-							eventStart < upcomingEvent.start
-						) {
-							upcomingEvent = event;
-						}
-					}
+		const eventStart = event.start;
+		const eventEnd = event.end;
+		return now >= eventStart && now <= eventEnd;
+	}
+
+	eventIsUpcoming(eventStart: Date) {
+		const now = new Date();
+		const upcomingEventHourLimit = 4;
+
+		const futureStartLimit = new Date(
+			now.getTime() + upcomingEventHourLimit * 60 * 60 * 1000
+		);
+
+		return now < eventStart && eventStart <= futureStartLimit;
+	}
+
+	findRelevantEvent(events: ical.CalendarResponse) {
+		let relevantEvent = null;
+
+		for (let eventId in events) {
+			if (!events.hasOwnProperty(eventId)) continue;
+
+			const event = events[eventId];
+			if (event.type != "VEVENT") continue;
+
+			// No placeholder events
+			if (event.summary === "Busy") continue;
+
+			if (this.eventIsHappeningNow(event)) {
+				return event;
+			} else if (this.eventIsUpcoming(event.start)) {
+				if (!relevantEvent || event.start < relevantEvent.start) {
+					relevantEvent = event;
 				}
 			}
 		}
-		return upcomingEvent; // return the next event if no current event is found
+
+		return relevantEvent;
 	}
 
 	async syncNoteWithEvent(event: ical.VEvent) {
@@ -89,7 +113,6 @@ export default class MyPlugin extends Plugin {
 			await this.app.vault.rename(activeFile, newFilePath);
 
 			let attendees = event.attendee;
-			console.log(attendees);
 			if (attendees) {
 				let attendeesList = "## Attendees:\n";
 
@@ -145,9 +168,7 @@ class SampleSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.calendarICSUrl)
 					.onChange(async (value) => {
 						this.plugin.settings.calendarICSUrl = value;
-						console.log("Settings updated:", this.plugin.settings);
 						await this.plugin.saveSettings();
-						console.log("Settings saved:", this.plugin.settings);
 					})
 			);
 	}
