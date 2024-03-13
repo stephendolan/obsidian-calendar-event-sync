@@ -3,7 +3,7 @@
 	"name": "Calendar Sync",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "Create and manage notes for calendar events.",
+	"description": "Sync your notes with a relevant calendar event.",
 	"author": "Stephen Dolan",
 	"authorUrl": "https://stephendolan.com",
 	"fundingUrl": "https://stephendolan.com/coaching",
