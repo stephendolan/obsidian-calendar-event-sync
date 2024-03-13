@@ -168,18 +168,9 @@ export default class MyPlugin extends Plugin {
 		return `📆 ${formattedDate}, ${eventSummary}`;
 	}
 
-	moveCursorToEndOfFile() {
-		const editor = this.app.workspace.activeEditor?.editor;
-		if (!editor) return;
-
-		const document = editor.getDoc();
-		document.setCursor(document.lineCount(), 0);
-	}
-
 	async syncNoteWithEvent(event: ical.VEvent) {
 		await this.addAttendeesToActiveFile(this.generateAttendeesList(event));
 		await this.renameActiveFile(this.generateTitleFromEvent(event));
-		// this.moveCursorToEndOfFile();
 	}
 
 	onunload() {}
