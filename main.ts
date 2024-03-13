@@ -26,14 +26,14 @@ export default class MyPlugin extends Plugin {
 		this.addCommand({
 			id: "update-note-title-from-calendar",
 			name: "Sync with Event",
-			callback: () => this.updateNote(),
+			callback: () => this.updateNoteFromCalendarEvent(),
 		});
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new SettingTab(this.app, this));
 	}
 
-	async updateNote() {
+	async updateNoteFromCalendarEvent() {
 		const icsUrl = this.settings.calendarICSUrl;
 
 		try {
@@ -146,7 +146,7 @@ export default class MyPlugin extends Plugin {
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
+class SettingTab extends PluginSettingTab {
 	plugin: MyPlugin;
 
 	constructor(app: App, plugin: MyPlugin) {
