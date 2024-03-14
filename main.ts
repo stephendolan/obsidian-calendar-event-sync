@@ -244,10 +244,10 @@ export default class MyPlugin extends Plugin {
 	}
 
 	generateTitleFromEvent(event: ical.VEvent) {
-		const eventSummary = this.normalizeEventTitle(event.summary);
+		const eventSummary = event.summary;
 		const eventStart = event.start;
 		const formattedDate = eventStart.toISOString().split("T")[0]; // YYYY-MM-DD format
-		return `📆 ${formattedDate}, ${eventSummary}`;
+		return `📆 ${formattedDate}, ${this.normalizeEventTitle(eventSummary)}`;
 	}
 
 	async syncNoteWithEvent(event: ical.VEvent) {
