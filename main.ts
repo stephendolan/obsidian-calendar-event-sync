@@ -1,8 +1,6 @@
 import {
-	TFile,
 	App,
 	Plugin,
-	Editor,
 	PluginSettingTab,
 	Setting,
 	Notice,
@@ -13,11 +11,17 @@ import * as ical from "node-ical";
 
 interface MyPluginSettings {
 	calendarICSUrl: string;
+	eventFutureHourLimit: number;
+	eventRecentHourLimit: number;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
 	calendarICSUrl: "default",
+	eventFutureHourLimit: 4,
+	eventRecentHourLimit: 2,
 };
+
+const DEBUGGING = false;
 
 export default class MyPlugin extends Plugin {
 	settings: MyPluginSettings;
@@ -46,12 +50,12 @@ export default class MyPlugin extends Plugin {
 
 			const events = ical.sync.parseICS(response);
 
-			const currentEvent = this.findRelevantEvent(events);
+			const relevantEvent = this.findRelevantEvent(events);
 
-			if (currentEvent) {
-				await this.syncNoteWithEvent(currentEvent);
+			if (relevantEvent) {
+				await this.syncNoteWithEvent(relevantEvent);
 			} else {
-				new Notice("No current or upcoming events found.", 0);
+				new Notice("No relevant events found to sync with.", 0);
 			}
 		} catch (error) {
 			if (/404/.test(error)) {
@@ -65,33 +69,104 @@ export default class MyPlugin extends Plugin {
 		}
 	}
 
-	eventIsHappeningNow(event: ical.VEvent) {
-		const now = new Date();
-		const eventStart = event.start;
-		const eventEnd = event.end;
-		return now >= eventStart && now <= eventEnd;
+	now() {
+		// Create a new Date object for the current date
+		let now = new Date();
+
+		if (DEBUGGING) {
+			// Set the time to 2:15pm
+			now.setHours(14, 15, 0, 0);
+		}
+
+		return now;
 	}
 
-	eventIsUpcoming(eventStart: Date) {
-		const now = new Date();
-		const upcomingEventHourLimit = 4;
+	recurringEventHappeningToday(event: ical.VEvent) {
+		if (!event.rrule) return null;
+
+		const now = this.now();
+		const startOfDay = new Date(now.setHours(0, 0, 0, 0));
+		const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+		const occurrences = event.rrule.between(startOfDay, endOfDay, true);
+
+		return occurrences[0];
+	}
+
+	eventIsHappeningNow(event: ical.VEvent) {
+		const now = this.now();
+		let start = event.start;
+		let end = event.end;
+
+		const recurringEventInstance = this.recurringEventHappeningToday(event);
+
+		if (recurringEventInstance) {
+			start.setFullYear(
+				recurringEventInstance.getFullYear(),
+				recurringEventInstance.getMonth(),
+				recurringEventInstance.getDate()
+			);
+			end.setFullYear(
+				recurringEventInstance.getFullYear(),
+				recurringEventInstance.getMonth(),
+				recurringEventInstance.getDate()
+			);
+		}
+
+		return now >= start && now <= end;
+	}
+
+	eventIsUpcoming(event: ical.VEvent) {
+		const now = this.now();
+		let start = event.start;
+		let end = event.end;
 
 		const futureStartLimit = new Date(
-			now.getTime() + upcomingEventHourLimit * 60 * 60 * 1000
+			now.getTime() + this.settings.eventFutureHourLimit * 60 * 60 * 1000
 		);
 
-		return now < eventStart && eventStart <= futureStartLimit;
+		const recurringEventInstance = this.recurringEventHappeningToday(event);
+
+		if (recurringEventInstance) {
+			start.setFullYear(
+				recurringEventInstance.getFullYear(),
+				recurringEventInstance.getMonth(),
+				recurringEventInstance.getDate()
+			);
+			end.setFullYear(
+				recurringEventInstance.getFullYear(),
+				recurringEventInstance.getMonth(),
+				recurringEventInstance.getDate()
+			);
+		}
+
+		return now < start && start <= futureStartLimit;
 	}
 
-	eventIsRecent(eventEnd: Date) {
-		const now = new Date();
-		const recentEventHourLimit = 1;
+	eventIsRecent(event: ical.VEvent) {
+		const now = this.now();
+		let start = event.start;
+		let end = event.end;
 
 		const pastEndLimit = new Date(
-			now.getTime() - recentEventHourLimit * 60 * 60 * 1000
+			now.getTime() - this.settings.eventRecentHourLimit * 60 * 60 * 1000
 		);
 
-		return pastEndLimit <= eventEnd && eventEnd < now;
+		const recurringEventInstance = this.recurringEventHappeningToday(event);
+
+		if (recurringEventInstance) {
+			start.setFullYear(
+				recurringEventInstance.getFullYear(),
+				recurringEventInstance.getMonth(),
+				recurringEventInstance.getDate()
+			);
+			end.setFullYear(
+				recurringEventInstance.getFullYear(),
+				recurringEventInstance.getMonth(),
+				recurringEventInstance.getDate()
+			);
+		}
+
+		return pastEndLimit <= end && end < now;
 	}
 
 	findRelevantEvent(events: ical.CalendarResponse) {
@@ -103,7 +178,8 @@ export default class MyPlugin extends Plugin {
 			if (!events.hasOwnProperty(eventId)) continue;
 
 			const event = events[eventId];
-			if (event.type != "VEVENT") continue;
+
+			if (event.type !== "VEVENT") continue;
 
 			// No placeholder events
 			if (event.summary === "Busy") continue;
@@ -111,11 +187,11 @@ export default class MyPlugin extends Plugin {
 			if (this.eventIsHappeningNow(event)) {
 				currentEvent = event;
 				break;
-			} else if (this.eventIsUpcoming(event.start)) {
+			} else if (this.eventIsUpcoming(event)) {
 				if (!upcomingEvent || event.start < upcomingEvent.start) {
 					upcomingEvent = event;
 				}
-			} else if (this.eventIsRecent(event.end)) {
+			} else if (this.eventIsRecent(event)) {
 				if (!previousEvent || event.end > previousEvent.end) {
 					previousEvent = event;
 				}
@@ -161,8 +237,14 @@ export default class MyPlugin extends Plugin {
 		await this.app.vault.rename(activeFile, newFilePath);
 	}
 
+	// Remove any slashes (/) or colons (:) from the event summary.
+	// Obsidian has some rules about what's allowed.
+	normalizeEventTitle(eventSummary: string) {
+		return eventSummary.replace(/[/:]/g, " ");
+	}
+
 	generateTitleFromEvent(event: ical.VEvent) {
-		const eventSummary = event.summary;
+		const eventSummary = this.normalizeEventTitle(event.summary);
 		const eventStart = event.start;
 		const formattedDate = eventStart.toISOString().split("T")[0]; // YYYY-MM-DD format
 		return `📆 ${formattedDate}, ${eventSummary}`;
@@ -210,6 +292,40 @@ class SettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.calendarICSUrl)
 					.onChange(async (value) => {
 						this.plugin.settings.calendarICSUrl = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Future Event Hour Limit")
+			.setDesc(
+				"The number of hours in the future to consider an event as 'upcoming'."
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter your preferred hour limit")
+					.setValue(
+						this.plugin.settings.eventFutureHourLimit.toString()
+					)
+					.onChange(async (value) => {
+						this.plugin.settings.eventFutureHourLimit =
+							Number(value);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Recent Event Hour Limit")
+			.setDesc(
+				"The number of hours in the past to consider an event as 'recent'."
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter your preferred hour limit")
+					.setValue(String(this.plugin.settings.eventRecentHourLimit))
+					.onChange(async (value) => {
+						this.plugin.settings.eventRecentHourLimit =
+							Number(value);
 						await this.plugin.saveSettings();
 					})
 			);
