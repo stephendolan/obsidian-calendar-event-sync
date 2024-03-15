@@ -261,6 +261,8 @@ export default class MyPlugin extends Plugin {
 		if (!activeFile) return;
 
 		const fileContent = await this.app.vault.read(activeFile);
+		if (fileContent.includes(attendeesList)) return;
+
 		const newContent = `${attendeesList}\n${fileContent}`;
 		await this.app.vault.modify(activeFile, newContent);
 	}
