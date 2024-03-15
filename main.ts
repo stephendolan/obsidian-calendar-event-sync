@@ -324,18 +324,25 @@ class SettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
+		containerEl.createEl("h1", { text: "Required Settings" });
+
 		new Setting(containerEl)
 			.setName("Calendar ICS URL")
 			.setDesc("The secret URL where we can find your calendar events.")
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter your ICS URL")
-					.setValue(this.plugin.settings.calendarICSUrl)
+					.setValue(this.plugin.settings.calendarICSUrl || "")
 					.onChange(async (value) => {
 						this.plugin.settings.calendarICSUrl = value;
 						await this.plugin.saveSettings();
 					})
 			);
+
+		containerEl.createEl("h1", {
+			text: "Optional Settings",
+			attr: { style: "margin-top: 40px;" },
+		});
 
 		new Setting(containerEl)
 			.setName("Calendar Owner Email")
@@ -345,7 +352,7 @@ class SettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter your email address")
-					.setValue(this.plugin.settings.calendarOwnerEmail)
+					.setValue(this.plugin.settings.calendarOwnerEmail || "")
 					.onChange(async (value) => {
 						this.plugin.settings.calendarOwnerEmail = value;
 						await this.plugin.saveSettings();
