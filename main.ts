@@ -10,13 +10,17 @@ import {
 import * as ical from "node-ical";
 
 interface MyPluginSettings {
-	calendarICSUrl: string;
+	calendarICSUrl?: string;
+	calendarOwnerEmail?: string;
+	ignoredEventTitles?: string[];
 	eventFutureHourLimit: number;
 	eventRecentHourLimit: number;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	calendarICSUrl: "default",
+	calendarICSUrl: undefined,
+	calendarOwnerEmail: undefined,
+	ignoredEventTitles: [],
 	eventFutureHourLimit: 4,
 	eventRecentHourLimit: 2,
 };
@@ -41,6 +45,7 @@ export default class MyPlugin extends Plugin {
 
 	async updateNoteFromCalendarEvent() {
 		const icsUrl = this.settings.calendarICSUrl;
+		if (!icsUrl) throw new Error("No ICS URL provided in settings.");
 
 		try {
 			const response = await request({
@@ -87,6 +92,15 @@ export default class MyPlugin extends Plugin {
 		const now = this.now();
 		const startOfDay = new Date(now.setHours(0, 0, 0, 0));
 		const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+
+		// Check if today's date is included in the event's exdate
+		if (
+			event.exdate &&
+			event.exdate.hasOwnProperty(startOfDay.toISOString().split("T")[0])
+		) {
+			return null;
+		}
+
 		const occurrences = event.rrule.between(startOfDay, endOfDay, true);
 
 		return occurrences[0];
@@ -169,6 +183,27 @@ export default class MyPlugin extends Plugin {
 		return pastEndLimit <= end && end < now;
 	}
 
+	attendingEvent(event: ical.VEvent): boolean {
+		const calendarOwnerEmail = this.settings.calendarOwnerEmail;
+
+		// If the user hasn't set their email, assume they're attending all events
+		if (!calendarOwnerEmail) return true;
+
+		let attendees = event.attendee;
+		if (!attendees) return true;
+
+		if (!Array.isArray(attendees)) {
+			attendees = [attendees];
+		}
+
+		return attendees.some((attendee: any) => {
+			return (
+				attendee.params.CN === calendarOwnerEmail &&
+				attendee.params.PARTSTAT !== "DECLINED"
+			);
+		});
+	}
+
 	findRelevantEvent(events: ical.CalendarResponse) {
 		let currentEvent = null;
 		let upcomingEvent = null;
@@ -181,8 +216,11 @@ export default class MyPlugin extends Plugin {
 
 			if (event.type !== "VEVENT") continue;
 
-			// No placeholder events
-			if (event.summary === "Busy") continue;
+			if (!this.attendingEvent(event)) continue;
+
+			if (this.settings.ignoredEventTitles?.includes(event.summary)) {
+				continue;
+			}
 
 			if (this.eventIsHappeningNow(event)) {
 				currentEvent = event;
@@ -297,6 +335,21 @@ class SettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Calendar Owner Email")
+			.setDesc(
+				"The email address of the calendar owner. This is used to filter out events that you've declined."
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter your email address")
+					.setValue(this.plugin.settings.calendarOwnerEmail)
+					.onChange(async (value) => {
+						this.plugin.settings.calendarOwnerEmail = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
 			.setName("Future Event Hour Limit")
 			.setDesc(
 				"The number of hours in the future to consider an event as 'upcoming'."
@@ -326,6 +379,26 @@ class SettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.eventRecentHourLimit =
 							Number(value);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Ignored Event Titles")
+			.setDesc(
+				"Events with these titles will be ignored when syncing with notes. Put each event name on a new line."
+			)
+			.addTextArea((text) =>
+				text
+					.setPlaceholder("Enter event titles to ignore")
+					.setValue(
+						this.plugin.settings.ignoredEventTitles?.join("\n") ||
+							""
+					)
+					.onChange(async (value) => {
+						this.plugin.settings.ignoredEventTitles = value
+							.split("\n")
+							.filter((title) => title !== "");
 						await this.plugin.saveSettings();
 					})
 			);
