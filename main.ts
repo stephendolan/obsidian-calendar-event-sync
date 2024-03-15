@@ -55,7 +55,7 @@ export default class MyPlugin extends Plugin {
 			if (relevantEvent) {
 				await this.syncNoteWithEvent(relevantEvent);
 			} else {
-				new Notice("No relevant events found to sync with.", 0);
+				new Notice("No relevant events found to sync with.", 5000);
 			}
 		} catch (error) {
 			if (/404/.test(error)) {
