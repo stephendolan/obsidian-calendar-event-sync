@@ -15,6 +15,7 @@ interface MyPluginSettings {
 	ignoredEventTitles?: string[];
 	eventFutureHourLimit: number;
 	eventRecentHourLimit: number;
+	showNotices: boolean;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
@@ -23,6 +24,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 	ignoredEventTitles: [],
 	eventFutureHourLimit: 4,
 	eventRecentHourLimit: 2,
+	showNotices: true,
 };
 
 const DEBUGGING = false;
@@ -59,19 +61,31 @@ export default class MyPlugin extends Plugin {
 
 			if (relevantEvent) {
 				await this.syncNoteWithEvent(relevantEvent);
-				new Notice("Event synced with note.", 5000);
+				this.displayNotice("Event synced with note.", 5000);
 			} else {
-				new Notice("No relevant events found to sync with.", 5000);
+				this.displayNotice(
+					"No relevant events found to sync with.",
+					5000
+				);
 			}
 		} catch (error) {
 			if (/404/.test(error)) {
-				new Notice(
+				this.displayNotice(
 					"Couldn't sync with calendar events. Make sure your ICS URL is correct in the plugin settings.",
 					0
 				);
 			} else {
-				new Notice(`Couldn't sync with calendar event: ${error}`, 0);
+				this.displayNotice(
+					`Couldn't sync with calendar event: ${error}`,
+					0
+				);
 			}
+		}
+	}
+
+	displayNotice(message: string, timeout: number) {
+		if (this.settings.showNotices) {
+			new Notice(message, timeout);
 		}
 	}
 
@@ -343,6 +357,20 @@ class SettingTab extends PluginSettingTab {
 			text: "Optional Settings",
 			attr: { style: "margin-top: 40px;" },
 		});
+
+		new Setting(containerEl)
+			.setName("Show Notices")
+			.setDesc(
+				"Show notices and errors when syncing. Can be helpful during setup or for debugging."
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.showNotices)
+					.onChange(async (value) => {
+						this.plugin.settings.showNotices = value;
+						await this.plugin.saveSettings();
+					})
+			);
 
 		new Setting(containerEl)
 			.setName("Calendar Owner Email")
