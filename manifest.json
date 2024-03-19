@@ -1,9 +1,9 @@
 {
-	"id": "calendar-sync",
-	"name": "Calendar Sync",
-	"version": "1.0.2",
+	"id": "calendar-event-sync",
+	"name": "Calendar Event Sync",
+	"version": "1.0.3",
 	"minAppVersion": "0.15.0",
-	"description": "Sync your notes with a relevant calendar event.",
+	"description": "Sync your current note with a relevant calendar event.",
 	"author": "Stephen Dolan",
 	"authorUrl": "https://stephendolan.com",
 	"isDesktopOnly": false
