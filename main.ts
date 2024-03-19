@@ -36,7 +36,7 @@ export default class MyPlugin extends Plugin {
 		await this.loadSettings();
 
 		this.addCommand({
-			id: "update-note-title-from-calendar",
+			id: "calendar-event-sync",
 			name: "Sync with Event",
 			callback: () => this.updateNoteFromCalendarEvent(),
 		});
