@@ -326,9 +326,9 @@ export default class CalendarEventSyncPlugin extends Plugin {
 }
 
 class SettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+	plugin: CalendarEventSyncPlugin;
 
-	constructor(app: App, plugin: MyPlugin) {
+	constructor(app: App, plugin: CalendarEventSyncPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
