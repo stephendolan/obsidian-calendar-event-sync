@@ -9,7 +9,7 @@ import {
 
 import * as ical from "node-ical";
 
-interface MyPluginSettings {
+interface PluginSettings {
 	calendarICSUrl?: string;
 	calendarOwnerEmail?: string;
 	ignoredEventTitles?: string[];
@@ -18,7 +18,7 @@ interface MyPluginSettings {
 	showNotices: boolean;
 }
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
+const DEFAULT_SETTINGS: PluginSettings = {
 	calendarICSUrl: undefined,
 	calendarOwnerEmail: undefined,
 	ignoredEventTitles: [],
@@ -29,8 +29,8 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 
 const DEBUGGING = false;
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class CalendarEventSyncPlugin extends Plugin {
+	settings: PluginSettings;
 
 	async onload() {
 		await this.loadSettings();
