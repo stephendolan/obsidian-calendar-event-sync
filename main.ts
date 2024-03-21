@@ -15,7 +15,6 @@ interface PluginSettings {
 	ignoredEventTitles?: string[];
 	eventFutureHourLimit: number;
 	eventRecentHourLimit: number;
-	showNotices: boolean;
 }
 
 const DEFAULT_SETTINGS: PluginSettings = {
@@ -24,7 +23,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
 	ignoredEventTitles: [],
 	eventFutureHourLimit: 4,
 	eventRecentHourLimit: 2,
-	showNotices: true,
 };
 
 const DEBUGGING = false;
@@ -37,7 +35,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 
 		this.addCommand({
 			id: "calendar-event-sync",
-			name: "Sync with Event",
+			name: "Sync with event",
 			callback: () => this.updateNoteFromCalendarEvent(),
 		});
 
@@ -84,9 +82,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 	}
 
 	displayNotice(message: string, timeout: number) {
-		if (this.settings.showNotices) {
-			new Notice(message, timeout);
-		}
+		new Notice(message, timeout);
 	}
 
 	now() {
@@ -275,11 +271,11 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile) return;
 
-		const fileContent = await this.app.vault.read(activeFile);
-		if (fileContent.includes(attendeesList)) return;
+		await this.app.vault.process(activeFile, (fileContent) => {
+			if (fileContent.includes(attendeesList)) return fileContent;
 
-		const newContent = `${attendeesList}\n${fileContent}`;
-		await this.app.vault.modify(activeFile, newContent);
+			return `${attendeesList}\n${fileContent}`;
+		});
 	}
 
 	async renameActiveFile(newTitle: string) {
@@ -338,8 +334,6 @@ class SettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl("h1", { text: "Required Settings" });
-
 		new Setting(containerEl)
 			.setName("Calendar ICS URL")
 			.setDesc("The secret URL where we can find your calendar events.")
@@ -353,27 +347,10 @@ class SettingTab extends PluginSettingTab {
 					})
 			);
 
-		containerEl.createEl("h1", {
-			text: "Optional Settings",
-			attr: { style: "margin-top: 40px;" },
-		});
+		new Setting(containerEl).setName("Optional").setHeading();
 
 		new Setting(containerEl)
-			.setName("Show Notices")
-			.setDesc(
-				"Show notices and errors when syncing. Can be helpful during setup or for debugging."
-			)
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.showNotices)
-					.onChange(async (value) => {
-						this.plugin.settings.showNotices = value;
-						await this.plugin.saveSettings();
-					})
-			);
-
-		new Setting(containerEl)
-			.setName("Calendar Owner Email")
+			.setName("Calendar owner email")
 			.setDesc(
 				"The email address of the calendar owner. This is used to filter out events that you've declined."
 			)
@@ -388,7 +365,7 @@ class SettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Future Event Hour Limit")
+			.setName("Future event hour limit")
 			.setDesc(
 				"The number of hours in the future to consider an event as 'upcoming'."
 			)
@@ -406,7 +383,7 @@ class SettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Recent Event Hour Limit")
+			.setName("Recent event hour limit")
 			.setDesc(
 				"The number of hours in the past to consider an event as 'recent'."
 			)
@@ -422,7 +399,7 @@ class SettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Ignored Event Titles")
+			.setName("Ignored event titles")
 			.setDesc(
 				"Events with these titles will be ignored when syncing with notes. Put each event name on a new line."
 			)
