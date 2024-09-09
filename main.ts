@@ -5,6 +5,7 @@ import {
 	Setting,
 	Notice,
 	request,
+	Modal,
 } from "obsidian";
 
 import * as ical from "node-ical";
@@ -16,6 +17,11 @@ interface PluginSettings {
 	eventFutureHourLimit: number;
 	eventRecentHourLimit: number;
 }
+
+type EventPickerOption = {
+	label: string;
+	value: ical.VEvent;
+};
 
 const DEFAULT_SETTINGS: PluginSettings = {
 	calendarICSUrl: undefined,
@@ -34,16 +40,29 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		await this.loadSettings();
 
 		this.addCommand({
-			id: "calendar-event-sync",
-			name: "Sync with event",
+			id: "sync-with-closest-event",
+			name: "Sync with closest event",
 			callback: () => this.updateNoteFromCalendarEvent(),
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
+		this.addCommand({
+			id: "sync-with-selected-event",
+			name: "Select event to sync",
+			callback: () => this.listCalendarEvents(),
+		});
+
 		this.addSettingTab(new SettingTab(this.app, this));
 	}
 
 	async updateNoteFromCalendarEvent() {
+		if (!this.app.workspace.getActiveFile()) {
+			this.displayNotice(
+				"No active note found. Please open a note first.",
+				5000
+			);
+			return;
+		}
+
 		const icsUrl = this.settings.calendarICSUrl;
 		if (!icsUrl) throw new Error("No ICS URL provided in settings.");
 
@@ -55,7 +74,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 
 			const events = ical.sync.parseICS(response);
 
-			const relevantEvent = this.findRelevantEvent(events);
+			const relevantEvent = this.findClosestEvent(events);
 
 			if (relevantEvent) {
 				await this.syncNoteWithEvent(relevantEvent);
@@ -87,22 +106,32 @@ export default class CalendarEventSyncPlugin extends Plugin {
 
 	now() {
 		// Create a new Date object for the current date
-		let now = new Date();
+		const currentDate = new Date();
 
 		if (DEBUGGING) {
-			// Set the time to 2:15pm
-			now.setHours(14, 15, 0, 0);
+			// Create a new Date object set to 2:15pm
+			return new Date(
+				currentDate.getFullYear(),
+				currentDate.getMonth(),
+				currentDate.getDate(),
+				14,
+				15,
+				0,
+				0
+			);
 		}
 
-		return now;
+		return new Date(currentDate.getTime());
 	}
 
-	recurringEventHappeningToday(event: ical.VEvent) {
+	closestRecurringEventInstance(event: ical.VEvent) {
 		if (!event.rrule) return null;
 
 		const now = this.now();
-		const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-		const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+		const startOfDay = new Date(now);
+		startOfDay.setHours(0, 0, 0, 0);
+		const endOfDay = new Date(now);
+		endOfDay.setHours(23, 59, 59, 999);
 
 		// Check if today's date is included in the event's exdate
 		if (
@@ -117,12 +146,13 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		return occurrences[0];
 	}
 
-	eventIsHappeningNow(event: ical.VEvent) {
+	isActivelyOccurringEvent(event: ical.VEvent) {
 		const now = this.now();
 		let start = event.start;
 		let end = event.end;
 
-		const recurringEventInstance = this.recurringEventHappeningToday(event);
+		const recurringEventInstance =
+			this.closestRecurringEventInstance(event);
 
 		if (recurringEventInstance) {
 			start.setFullYear(
@@ -140,16 +170,17 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		return now >= start && now <= end;
 	}
 
-	eventIsUpcoming(event: ical.VEvent) {
+	isUpcomingEvent(event: ical.VEvent) {
 		const now = this.now();
-		let start = event.start;
-		let end = event.end;
+		let start = new Date(event.start);
+		let end = new Date(event.end);
 
 		const futureStartLimit = new Date(
 			now.getTime() + this.settings.eventFutureHourLimit * 60 * 60 * 1000
 		);
 
-		const recurringEventInstance = this.recurringEventHappeningToday(event);
+		const recurringEventInstance =
+			this.closestRecurringEventInstance(event);
 
 		if (recurringEventInstance) {
 			start.setFullYear(
@@ -167,7 +198,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		return now < start && start <= futureStartLimit;
 	}
 
-	eventIsRecent(event: ical.VEvent) {
+	isRecentEvent(event: ical.VEvent) {
 		const now = this.now();
 		let start = event.start;
 		let end = event.end;
@@ -176,7 +207,8 @@ export default class CalendarEventSyncPlugin extends Plugin {
 			now.getTime() - this.settings.eventRecentHourLimit * 60 * 60 * 1000
 		);
 
-		const recurringEventInstance = this.recurringEventHappeningToday(event);
+		const recurringEventInstance =
+			this.closestRecurringEventInstance(event);
 
 		if (recurringEventInstance) {
 			start.setFullYear(
@@ -194,7 +226,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		return pastEndLimit <= end && end < now;
 	}
 
-	attendingEvent(event: ical.VEvent): boolean {
+	isAttendingEvent(event: ical.VEvent): boolean {
 		const calendarOwnerEmail = this.settings.calendarOwnerEmail;
 
 		// If the user hasn't set their email, assume they're attending all events
@@ -215,32 +247,56 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		});
 	}
 
-	findRelevantEvent(events: ical.CalendarResponse) {
+	filteredAndSortedEvents(events: ical.CalendarResponse): ical.VEvent[] {
+		const minimumProcessingDate = new Date();
+		minimumProcessingDate.setMonth(minimumProcessingDate.getMonth() - 2);
+
+		const filteredEvents = Object.values(events).filter(
+			(event): event is ical.VEvent => {
+				if (event.type !== "VEVENT") return false;
+				const eventStart =
+					event.start instanceof Date
+						? event.start
+						: new Date(event.start);
+				return !!event.rrule || eventStart >= minimumProcessingDate;
+			}
+		);
+
+		const sortedEvents = filteredEvents.sort((a, b) => {
+			const aStart =
+				a.start instanceof Date ? a.start : new Date(a.start);
+			const bStart =
+				b.start instanceof Date ? b.start : new Date(b.start);
+			return aStart.getTime() - bStart.getTime();
+		});
+
+		return sortedEvents;
+	}
+
+	findClosestEvent(events: ical.CalendarResponse) {
 		let currentEvent = null;
 		let upcomingEvent = null;
 		let previousEvent = null;
 
-		for (let eventId in events) {
-			if (!events.hasOwnProperty(eventId)) continue;
+		let filteredEvents = this.filteredAndSortedEvents(events);
 
-			const event = events[eventId];
-
-			if (event.type !== "VEVENT") continue;
-
-			if (!this.attendingEvent(event)) continue;
+		for (let event of filteredEvents) {
+			if (!this.isAttendingEvent(event)) {
+				continue;
+			}
 
 			if (this.settings.ignoredEventTitles?.includes(event.summary)) {
 				continue;
 			}
 
-			if (this.eventIsHappeningNow(event)) {
+			if (this.isActivelyOccurringEvent(event)) {
 				currentEvent = event;
 				break;
-			} else if (this.eventIsUpcoming(event)) {
+			} else if (this.isUpcomingEvent(event)) {
 				if (!upcomingEvent || event.start < upcomingEvent.start) {
 					upcomingEvent = event;
 				}
-			} else if (this.eventIsRecent(event)) {
+			} else if (this.isRecentEvent(event)) {
 				if (!previousEvent || event.end > previousEvent.end) {
 					previousEvent = event;
 				}
@@ -250,7 +306,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		return currentEvent || upcomingEvent || previousEvent;
 	}
 
-	generateAttendeesList(event: ical.VEvent) {
+	generateAttendeesListMarkdown(event: ical.VEvent) {
 		let attendeesList = "## Attendees:\n";
 
 		let attendees = event.attendee;
@@ -294,16 +350,95 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		return eventSummary.replace(/[/:]/g, " ");
 	}
 
+	// Format event start dates to YYYY-MM-DD
+	formattedEventStartDate(event: ical.VEvent) {
+		return event.start.toISOString().split("T")[0];
+	}
+
 	generateTitleFromEvent(event: ical.VEvent) {
 		const eventSummary = event.summary;
-		const eventStart = event.start;
-		const formattedDate = eventStart.toISOString().split("T")[0]; // YYYY-MM-DD format
+		const formattedDate = this.formattedEventStartDate(event);
 		return `📆 ${formattedDate}, ${this.normalizeEventTitle(eventSummary)}`;
 	}
 
 	async syncNoteWithEvent(event: ical.VEvent) {
-		await this.addAttendeesToActiveFile(this.generateAttendeesList(event));
+		await this.addAttendeesToActiveFile(
+			this.generateAttendeesListMarkdown(event)
+		);
 		await this.renameActiveFile(this.generateTitleFromEvent(event));
+	}
+
+	async listCalendarEvents() {
+		if (!this.app.workspace.getActiveFile()) {
+			this.displayNotice(
+				"No active note found. Please open a note first.",
+				5000
+			);
+			return;
+		}
+
+		const icsUrl = this.settings.calendarICSUrl;
+		if (!icsUrl) throw new Error("No ICS URL provided in settings.");
+
+		try {
+			const response = await request({
+				url: icsUrl,
+				method: "GET",
+			});
+
+			const events = ical.sync.parseICS(response);
+
+			const selectableEvents = this.eventsEligibleForSelection(events);
+
+			if (selectableEvents.length === 0) {
+				this.displayNotice(
+					"No events found for the specified time range.",
+					5000
+				);
+				return;
+			}
+
+			const eventChoices: EventPickerOption[] = selectableEvents
+				.map((event) => ({
+					label: this.generateTitleFromEvent(event),
+					value: event,
+				}))
+				.sort((a, b) => a.label.localeCompare(b.label));
+
+			this.showEventChoiceModal(eventChoices);
+		} catch (error) {
+			this.displayNotice(`Couldn't fetch calendar events: ${error}`, 0);
+		}
+	}
+
+	eventsEligibleForSelection(events: ical.CalendarResponse) {
+		const now = this.now();
+		const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+		const oneWeekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+		return this.filteredAndSortedEvents(events).filter((event) => {
+			if (
+				!this.isAttendingEvent(event) ||
+				this.settings.ignoredEventTitles?.includes(event.summary)
+			) {
+				return false;
+			}
+
+			const start =
+				this.closestRecurringEventInstance(event) ||
+				new Date(event.start);
+			return start >= oneDayAgo && start <= oneWeekAhead;
+		});
+	}
+
+	showEventChoiceModal(eventChoices: EventPickerOption[]) {
+		new EventChoiceModal(
+			this.app,
+			eventChoices,
+			(selectedEvent: ical.VEvent) => {
+				this.syncNoteWithEvent(selectedEvent);
+			}
+		).open();
 	}
 
 	onunload() {}
@@ -417,5 +552,76 @@ class SettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					})
 			);
+	}
+}
+
+class EventChoiceModal extends Modal {
+	eventChoices: EventPickerOption[];
+	onChoose: (selectedEvent: ical.VEvent) => void;
+	private static styleElement: HTMLStyleElement | null = null;
+
+	constructor(
+		app: App,
+		eventChoices: EventPickerOption[],
+		onChoose: (selectedEvent: ical.VEvent) => void
+	) {
+		super(app);
+		this.eventChoices = eventChoices;
+		this.onChoose = onChoose;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		const modalHeader = contentEl.createEl("h2", {
+			text: "Select an Event",
+		});
+
+		this.eventChoices.forEach((choice) => {
+			const eventEl = contentEl.createEl("div", { cls: "event-choice" });
+			eventEl.createEl("span", { text: choice.label });
+			const selectButton = eventEl.createEl("button", { text: "Select" });
+
+			selectButton.addEventListener("click", () => {
+				this.onChoose(choice.value);
+				this.close();
+			});
+
+			contentEl.appendChild(eventEl);
+		});
+
+		if (!EventChoiceModal.styleElement) {
+			EventChoiceModal.styleElement = document.head.appendChild(
+				document.createElement("style")
+			);
+			EventChoiceModal.styleElement.textContent = `
+                .event-choice {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 10px;
+                    border: 1px solid #ccc;
+                    border-radius: 5px;
+                    margin-bottom: 10px;
+                }
+                .event-choice button {
+                    background-color: #007bff;
+                    color: white;
+                    border: none;
+                    padding: 5px 10px;
+                    border-radius: 5px;
+                    cursor: pointer;
+                }
+                .event-choice button:hover {
+                    background-color: #0056b3;
+                }
+            `;
+		}
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
 	}
 }

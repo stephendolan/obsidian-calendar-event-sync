@@ -4,11 +4,13 @@ This plugin is designed to quickly replace the title and initial content of the 
 
 ## How it Works
 
-When you run the `Sync with Event` command, we iterate through your calendar's event to find (in order of precedence):
+When you run the `Sync with closest event` command, we iterate through your calendar's event to find (in order of precedence):
 
 -   The current event, if one is happening now.
 -   The next upcoming event, if one is happening soon (time window customizable in settings).
 -   The most recent event, if one happened recently (time window customizable in settings).
+
+When you run the `Select event to sync` command, we show you a list of past, occurring, and future events to select from.
 
 ## Required Settings
 
