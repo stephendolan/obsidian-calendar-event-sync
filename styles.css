@@ -1,8 +1,114 @@
-/*
+/* Modal Styles */
+.modal {
+	max-width: var(--dialog-width);
+	max-height: 80vh;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.modal h2 {
+	font-size: var(--font-ui-large);
+	margin-bottom: var(--size-4-4);
+	color: var(--text-normal);
+	border-bottom: 2px solid var(--interactive-accent);
+	padding-bottom: var(--size-4-2);
+}
 
-If your plugin does not need CSS, delete this file.
+/* Event List Styles */
+.event-list {
+	max-height: calc(80vh - 100px);
+	overflow-y: auto;
+	padding-right: var(--size-4-2);
+	margin: var(--size-4-4) 0;
+}
 
-*/
+/* Scrollbar styles */
+.event-list::-webkit-scrollbar {
+	width: 6px;
+}
+
+.event-list::-webkit-scrollbar-track {
+	background: var(--background-secondary);
+	border-radius: 3px;
+}
+
+.event-list::-webkit-scrollbar-thumb {
+	background-color: var(--interactive-accent);
+	border-radius: 3px;
+}
+
+/* Event Choice Styles */
+.event-choice {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: var(--size-4-2);
+	padding: var(--size-4-3);
+	border-radius: var(--radius-m);
+	margin-bottom: var(--size-4-2);
+	background-color: var(--background-secondary);
+	transition: background-color 0.2s ease, transform 0.2s ease;
+}
+
+.event-choice:hover {
+	background-color: var(--background-secondary-alt);
+	transform: translateX(4px);
+}
+
+.event-info {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.event-title {
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-bold);
+	color: var(--text-normal);
+	margin-bottom: var(--size-4-1);
+}
+
+.event-details {
+	display: flex;
+	gap: var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.event-date,
+.event-time,
+.event-duration {
+	white-space: nowrap;
+}
+
+.event-choice button {
+	align-self: center;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	padding: var(--size-4-1) var(--size-4-3);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-bold);
+	transition: background-color 0.2s ease, transform 0.1s ease;
+	white-space: nowrap;
+}
+
+.event-choice button:hover {
+	background-color: var(--interactive-accent-hover);
+	transform: scale(1.05);
+}
+
+/* Responsive adjustments */
+@media (max-width: 400px) {
+	.event-choice {
+		grid-template-columns: 1fr;
+	}
+
+	.event-choice button {
+		justify-self: end;
+		margin-top: var(--size-4-2);
+	}
+
+	.event-details {
+		flex-wrap: wrap;
+	}
+}

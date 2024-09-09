@@ -351,14 +351,40 @@ export default class CalendarEventSyncPlugin extends Plugin {
 	}
 
 	// Format event start dates to YYYY-MM-DD
-	formattedEventStartDate(event: ical.VEvent) {
-		return event.start.toISOString().split("T")[0];
+	formattedEventStartDate(event: ical.VEvent): string {
+		const date = event.start;
+		const options: Intl.DateTimeFormatOptions = {
+			weekday: "short",
+			month: "short",
+			day: "numeric",
+		};
+		return date.toLocaleDateString("en-US", options);
 	}
 
 	generateTitleFromEvent(event: ical.VEvent) {
 		const eventSummary = event.summary;
 		const formattedDate = this.formattedEventStartDate(event);
-		return `📆 ${formattedDate}, ${this.normalizeEventTitle(eventSummary)}`;
+		const startTime = event.start.toLocaleTimeString([], {
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: true,
+		});
+		const duration = this.calculateEventDuration(event);
+		return `${formattedDate} | ${startTime} | ${duration} | ${this.normalizeEventTitle(
+			eventSummary
+		)}`;
+	}
+
+	calculateEventDuration(event: ical.VEvent): string {
+		const durationMs = event.end.getTime() - event.start.getTime();
+		const hours = Math.floor(durationMs / 3600000);
+		const minutes = Math.floor((durationMs % 3600000) / 60000);
+
+		return (
+			`${hours ? `${hours}h` : ""}${
+				minutes ? ` ${minutes}m` : ""
+			}`.trim() || "0m"
+		);
 	}
 
 	async syncNoteWithEvent(event: ical.VEvent) {
@@ -558,7 +584,6 @@ class SettingTab extends PluginSettingTab {
 class EventChoiceModal extends Modal {
 	eventChoices: EventPickerOption[];
 	onChoose: (selectedEvent: ical.VEvent) => void;
-	private static styleElement: HTMLStyleElement | null = null;
 
 	constructor(
 		app: App,
@@ -566,7 +591,7 @@ class EventChoiceModal extends Modal {
 		onChoose: (selectedEvent: ical.VEvent) => void
 	) {
 		super(app);
-		this.eventChoices = eventChoices;
+		this.eventChoices = this.sortEventChoices(eventChoices);
 		this.onChoose = onChoose;
 	}
 
@@ -574,50 +599,72 @@ class EventChoiceModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		const modalHeader = contentEl.createEl("h2", {
-			text: "Select an Event",
-		});
+		contentEl.createEl("h2", { text: "Select an Event" });
+
+		const eventList = contentEl.createEl("div", { cls: "event-list" });
 
 		this.eventChoices.forEach((choice) => {
-			const eventEl = contentEl.createEl("div", { cls: "event-choice" });
-			eventEl.createEl("span", { text: choice.label });
+			const eventEl = eventList.createEl("div", { cls: "event-choice" });
+
+			const [date, time, duration, title] = choice.label.split(" | ");
+
+			const eventInfo = eventEl.createEl("div", { cls: "event-info" });
+			eventInfo.createEl("div", { cls: "event-title", text: title });
+
+			const eventDetails = eventInfo.createEl("div", {
+				cls: "event-details",
+			});
+			eventDetails.createEl("span", { cls: "event-date", text: date });
+			eventDetails.createEl("span", { cls: "event-time", text: time });
+			eventDetails.createEl("span", {
+				cls: "event-duration",
+				text: duration,
+			});
+
 			const selectButton = eventEl.createEl("button", { text: "Select" });
 
 			selectButton.addEventListener("click", () => {
 				this.onChoose(choice.value);
 				this.close();
 			});
-
-			contentEl.appendChild(eventEl);
 		});
+	}
 
-		if (!EventChoiceModal.styleElement) {
-			EventChoiceModal.styleElement = document.head.appendChild(
-				document.createElement("style")
-			);
-			EventChoiceModal.styleElement.textContent = `
-                .event-choice {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    padding: 10px;
-                    border: 1px solid #ccc;
-                    border-radius: 5px;
-                    margin-bottom: 10px;
-                }
-                .event-choice button {
-                    background-color: #007bff;
-                    color: white;
-                    border: none;
-                    padding: 5px 10px;
-                    border-radius: 5px;
-                    cursor: pointer;
-                }
-                .event-choice button:hover {
-                    background-color: #0056b3;
-                }
-            `;
+	sortEventChoices(choices: EventPickerOption[]): EventPickerOption[] {
+		return choices.sort((a, b) => {
+			const [dateA, timeA] = a.label.split(" | ");
+			const [dateB, timeB] = b.label.split(" | ");
+
+			// Compare dates
+			const dateCompareA = new Date(dateA);
+			const dateCompareB = new Date(dateB);
+			const dateCompare = dateCompareA.getTime() - dateCompareB.getTime();
+			if (dateCompare !== 0) return dateCompare;
+
+			// If dates are the same, compare times
+			return this.compareTime(timeA, timeB);
+		});
+	}
+
+	compareTime(timeA: string, timeB: string): number {
+		const [hoursA, minutesA] = this.convertTo24Hour(timeA);
+		const [hoursB, minutesB] = this.convertTo24Hour(timeB);
+
+		if (hoursA !== hoursB) return hoursA - hoursB;
+		return minutesA - minutesB;
+	}
+
+	convertTo24Hour(time: string): [number, number] {
+		const [timeStr, period] = time.split(" ");
+		let [hours, minutes] = timeStr.split(":").map(Number);
+
+		if (period === "PM" && hours !== 12) {
+			hours += 12;
+		} else if (period === "AM" && hours === 12) {
+			hours = 0;
 		}
+
+		return [hours, minutes];
 	}
 
 	onClose() {
