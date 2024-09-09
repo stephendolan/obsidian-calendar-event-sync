@@ -79,7 +79,7 @@
 }
 
 .event-choice button {
-	align-self: center;
+	align-self: right;
 	background-color: var(--interactive-accent);
 	color: var(--text-on-accent);
 	border: none;
