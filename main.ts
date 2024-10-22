@@ -122,9 +122,17 @@ class CalendarEvent {
 	generateAttendeesListMarkdown(): string {
 		let attendeesList = "## Attendees:\n";
 		this.attendees.forEach((attendee: any) => {
-			attendeesList += `- ${attendee.params.CN}\n`;
+			const attendeeName =
+				attendee.params.CN || this.extractEmailFromVal(attendee.val);
+			attendeesList += `- ${attendeeName}\n`;
 		});
 		return attendeesList;
+	}
+
+	private extractEmailFromVal(val: string): string {
+		// The val property is in the format "mailto:email@example.com"
+		const match = val.match(/mailto:(.*)/);
+		return match ? match[1] : "Unknown";
 	}
 }
 
