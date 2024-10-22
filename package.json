@@ -22,6 +22,7 @@
 		"typescript": "4.7.4"
 	},
 	"dependencies": {
-		"node-ical": "^0.18.0"
+		"node-ical": "^0.18.0",
+		"rrule": "^2.8.1"
 	}
 }

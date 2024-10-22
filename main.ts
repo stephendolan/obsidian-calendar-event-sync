@@ -10,6 +10,7 @@ import {
 } from "obsidian";
 
 import * as ical from "node-ical";
+import { RRule, datetime } from "rrule";
 
 interface PluginSettings {
 	calendarICSUrl?: string;
@@ -149,17 +150,80 @@ class CalendarService {
 	}
 
 	private processEvents(events: ical.CalendarResponse): CalendarEvent[] {
-		const minimumProcessingDate = new Date();
+		const now = new Date();
+		const minimumProcessingDate = new Date(now);
 		minimumProcessingDate.setMonth(minimumProcessingDate.getMonth() - 2);
 
-		return Object.values(events)
-			.filter(
-				(event): event is ical.VEvent =>
-					event.type === "VEVENT" &&
-					(!!event.rrule || event.start >= minimumProcessingDate)
-			)
-			.map((event) => new CalendarEvent(event, this.settings))
-			.sort((a, b) => a.start.getTime() - b.start.getTime());
+		const processedEvents: CalendarEvent[] = [];
+
+		Object.values(events).forEach((event) => {
+			if (event.type !== "VEVENT") return;
+
+			const eventInstances = this.getEventInstances(
+				event,
+				minimumProcessingDate,
+				now
+			);
+			processedEvents.push(...eventInstances);
+		});
+
+		return processedEvents.sort(
+			(a, b) => a.start.getTime() - b.start.getTime()
+		);
+	}
+
+	private getEventInstances(
+		event: ical.VEvent,
+		minimumProcessingDate: Date,
+		now: Date
+	): CalendarEvent[] {
+		if (event.rrule) {
+			return this.getRecurringEventInstances(
+				event,
+				minimumProcessingDate,
+				now
+			);
+		} else if (event.start >= minimumProcessingDate) {
+			return [new CalendarEvent(event, this.settings)];
+		}
+		return [];
+	}
+
+	private getRecurringEventInstances(
+		event: ical.VEvent,
+		minimumProcessingDate: Date,
+		now: Date
+	): CalendarEvent[] {
+		if (!event.rrule) return [];
+
+		const rruleSet = RRule.fromString(event.rrule.toString());
+		const occurrences = rruleSet.between(
+			datetime(
+				minimumProcessingDate.getUTCFullYear(),
+				minimumProcessingDate.getUTCMonth() + 1,
+				minimumProcessingDate.getUTCDate()
+			),
+			datetime(
+				now.getUTCFullYear(),
+				now.getUTCMonth() + 1,
+				now.getUTCDate() + 30
+			),
+			true // Include the start date in the results
+		);
+
+		return occurrences.map((date) => {
+			const clonedEvent = { ...event };
+			const eventDuration = event.end.getTime() - event.start.getTime();
+
+			clonedEvent.start = new Date(
+				date.getTime()
+			) as unknown as ical.DateWithTimeZone;
+			clonedEvent.end = new Date(
+				date.getTime() + eventDuration
+			) as unknown as ical.DateWithTimeZone;
+
+			return new CalendarEvent(clonedEvent as ical.VEvent, this.settings);
+		});
 	}
 
 	findClosestEvent(events: CalendarEvent[], now: Date): CalendarEvent | null {
