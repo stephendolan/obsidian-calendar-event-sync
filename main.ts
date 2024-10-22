@@ -450,10 +450,32 @@ export default class CalendarEventSyncPlugin extends Plugin {
 				return false;
 			}
 
-			const start =
-				this.closestRecurringEventInstance(event) ||
-				new Date(event.start);
-			return start >= oneDayAgo && start <= oneWeekAhead;
+			let eventDate: Date;
+
+			if (event.rrule) {
+				const recurringInstance =
+					this.closestRecurringEventInstance(event);
+
+				if (recurringInstance) {
+					eventDate = recurringInstance;
+					event.start.setFullYear(
+						recurringInstance.getFullYear(),
+						recurringInstance.getMonth(),
+						recurringInstance.getDate()
+					);
+					event.end.setFullYear(
+						recurringInstance.getFullYear(),
+						recurringInstance.getMonth(),
+						recurringInstance.getDate()
+					);
+				} else {
+					eventDate = new Date(event.start);
+				}
+			} else {
+				eventDate = new Date(event.start);
+			}
+
+			return eventDate >= oneDayAgo && eventDate <= oneWeekAhead;
 		});
 	}
 
