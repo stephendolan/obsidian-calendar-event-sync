@@ -10,7 +10,7 @@ import {
 } from "obsidian";
 
 import * as ical from "node-ical";
-import { RRule, datetime } from "rrule";
+import { RRule, RRuleSet } from "rrule";
 
 interface PluginSettings {
 	calendarICSUrl?: string;
@@ -18,6 +18,8 @@ interface PluginSettings {
 	ignoredEventTitles?: string[];
 	eventFutureHourLimit: number;
 	eventRecentHourLimit: number;
+	selectablePastDays: number;
+	selectableFutureDays: number;
 }
 
 const DEFAULT_SETTINGS: PluginSettings = {
@@ -26,6 +28,8 @@ const DEFAULT_SETTINGS: PluginSettings = {
 	ignoredEventTitles: [],
 	eventFutureHourLimit: 4,
 	eventRecentHourLimit: 2,
+	selectablePastDays: 1,
+	selectableFutureDays: 3,
 };
 
 const DEBUGGING = false;
@@ -66,6 +70,10 @@ class CalendarEvent {
 		return (
 			this.settings.ignoredEventTitles?.includes(this.summary) || false
 		);
+	}
+
+	isCancelled(): boolean {
+		return this.event.status === "CANCELLED";
 	}
 
 	isActivelyOccurring(now: Date): boolean {
@@ -196,34 +204,68 @@ class CalendarService {
 	): CalendarEvent[] {
 		if (!event.rrule) return [];
 
-		const rruleSet = RRule.fromString(event.rrule.toString());
+		const rruleSet = new RRuleSet();
+
+		// Add the main rule
+		const mainRule = RRule.fromString(event.rrule.toString());
+		rruleSet.rrule(mainRule);
+
+		// Add exceptions (EXDATE)
+		const exdates = new Set<string>();
+		if (event.exdate) {
+			const exdateArray = Array.isArray(event.exdate)
+				? event.exdate
+				: [event.exdate];
+			exdateArray.forEach((exdate) => {
+				const exdateStr = new Date(exdate).toISOString();
+				exdates.add(exdateStr);
+				rruleSet.exdate(new Date(exdate));
+			});
+		}
+
+		// Get occurrences
 		const occurrences = rruleSet.between(
-			datetime(
-				minimumProcessingDate.getUTCFullYear(),
-				minimumProcessingDate.getUTCMonth() + 1,
-				minimumProcessingDate.getUTCDate()
-			),
-			datetime(
-				now.getUTCFullYear(),
-				now.getUTCMonth() + 1,
-				now.getUTCDate() + 30
-			),
-			true // Include the start date in the results
+			minimumProcessingDate,
+			new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+			true
 		);
 
-		return occurrences.map((date) => {
-			const clonedEvent = { ...event };
-			const eventDuration = event.end.getTime() - event.start.getTime();
+		return occurrences
+			.map((date) => {
+				const dateStr = date.toISOString();
+				if (exdates.has(dateStr)) {
+					return null;
+				}
+				return this.createEventInstance(event, date);
+			})
+			.filter(
+				(event): event is CalendarEvent =>
+					event !== null && this.isValidEventInstance(event)
+			);
+	}
 
-			clonedEvent.start = new Date(
-				date.getTime()
-			) as unknown as ical.DateWithTimeZone;
-			clonedEvent.end = new Date(
-				date.getTime() + eventDuration
-			) as unknown as ical.DateWithTimeZone;
+	private createEventInstance(
+		originalEvent: ical.VEvent,
+		date: Date
+	): CalendarEvent {
+		const clonedEvent = { ...originalEvent };
+		const eventDuration =
+			originalEvent.end.getTime() - originalEvent.start.getTime();
 
-			return new CalendarEvent(clonedEvent as ical.VEvent, this.settings);
-		});
+		clonedEvent.start = new Date(
+			date.getTime()
+		) as unknown as ical.DateWithTimeZone;
+		clonedEvent.end = new Date(
+			date.getTime() + eventDuration
+		) as unknown as ical.DateWithTimeZone;
+
+		return new CalendarEvent(clonedEvent as ical.VEvent, this.settings);
+	}
+
+	private isValidEventInstance(event: CalendarEvent): boolean {
+		return (
+			event.isAttending() && !event.isIgnored() && !event.isCancelled()
+		);
 	}
 
 	findClosestEvent(events: CalendarEvent[], now: Date): CalendarEvent | null {
@@ -248,15 +290,21 @@ class CalendarService {
 	}
 
 	getSelectableEvents(events: CalendarEvent[], now: Date): CalendarEvent[] {
-		const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-		const oneWeekAhead = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+		const pastLimit = new Date(
+			now.getTime() -
+				this.settings.selectablePastDays * 24 * 60 * 60 * 1000
+		);
+		const futureLimit = new Date(
+			now.getTime() +
+				this.settings.selectableFutureDays * 24 * 60 * 60 * 1000
+		);
 
 		return events.filter(
 			(event) =>
 				event.isAttending() &&
 				!event.isIgnored() &&
-				event.start >= oneDayAgo &&
-				event.start <= oneWeekAhead
+				event.start >= pastLimit &&
+				event.start <= futureLimit
 		);
 	}
 }
@@ -467,7 +515,43 @@ class SettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Future event hour limit")
+			.setName("Ignored event titles")
+			.setDesc(
+				"Events with these titles will be ignored when syncing with notes. Put each event name on a new line."
+			)
+			.addTextArea((text) =>
+				text
+					.setPlaceholder("Enter event titles to ignore")
+					.setValue(
+						this.plugin.settings.ignoredEventTitles?.join("\n") ||
+							""
+					)
+					.onChange(async (value) => {
+						this.plugin.settings.ignoredEventTitles = value
+							.split("\n")
+							.filter((title) => title !== "");
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Quick sync - Past limit (hours)")
+			.setDesc(
+				"The number of hours in the past to consider an event as 'recent'."
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter your preferred hour limit")
+					.setValue(String(this.plugin.settings.eventRecentHourLimit))
+					.onChange(async (value) => {
+						this.plugin.settings.eventRecentHourLimit =
+							Number(value);
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Quick sync - Future limit (hours)")
 			.setDesc(
 				"The number of hours in the future to consider an event as 'upcoming'."
 			)
@@ -485,37 +569,32 @@ class SettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Recent event hour limit")
+			.setName("Select modal - Past limit (days)")
 			.setDesc(
-				"The number of hours in the past to consider an event as 'recent'."
+				"How many days in the past to show events in the selection modal."
 			)
 			.addText((text) =>
 				text
-					.setPlaceholder("Enter your preferred hour limit")
-					.setValue(String(this.plugin.settings.eventRecentHourLimit))
+					.setPlaceholder("Enter number of days")
+					.setValue(String(this.plugin.settings.selectablePastDays))
 					.onChange(async (value) => {
-						this.plugin.settings.eventRecentHourLimit =
-							Number(value);
+						this.plugin.settings.selectablePastDays = Number(value);
 						await this.plugin.saveSettings();
 					})
 			);
 
 		new Setting(containerEl)
-			.setName("Ignored event titles")
+			.setName("Select modal - Future limit (days)")
 			.setDesc(
-				"Events with these titles will be ignored when syncing with notes. Put each event name on a new line."
+				"How many days in the future to show events in the selection modal."
 			)
-			.addTextArea((text) =>
+			.addText((text) =>
 				text
-					.setPlaceholder("Enter event titles to ignore")
-					.setValue(
-						this.plugin.settings.ignoredEventTitles?.join("\n") ||
-							""
-					)
+					.setPlaceholder("Enter number of days")
+					.setValue(String(this.plugin.settings.selectableFutureDays))
 					.onChange(async (value) => {
-						this.plugin.settings.ignoredEventTitles = value
-							.split("\n")
-							.filter((title) => title !== "");
+						this.plugin.settings.selectableFutureDays =
+							Number(value);
 						await this.plugin.saveSettings();
 					})
 			);

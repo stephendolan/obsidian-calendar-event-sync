@@ -2,6 +2,8 @@
 .modal {
 	max-width: var(--dialog-width);
 	max-height: 80vh;
+	display: flex;
+	flex-direction: column;
 }
 
 .modal h2 {
@@ -14,7 +16,7 @@
 
 /* Event List Styles */
 .event-list {
-	max-height: calc(80vh - 100px);
+	flex-grow: 1;
 	overflow-y: auto;
 	padding-right: var(--size-4-2);
 	margin: var(--size-4-4) 0;
