@@ -1,4 +1,4 @@
-import { App, Plugin, TFile } from "obsidian";
+import { Plugin, TFile } from "obsidian";
 import { PluginSettings, DEFAULT_SETTINGS, SettingTab } from "./settings";
 import { UIManager } from "./interface";
 import { CalendarEvent, CalendarService } from "./calendar";
