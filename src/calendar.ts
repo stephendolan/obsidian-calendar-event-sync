@@ -19,8 +19,28 @@ export class CalendarEvent {
 	}
 
 	get attendees(): any[] {
-		let attendees = this.event.attendee;
-		if (!attendees) return [];
+		const DEFAULT_ATTENDEE = {
+			params: {
+				CN: "Not visible for this event from ICS. Check your URL options.",
+			},
+			val: "no-attendees",
+		};
+
+		const possibleAttendeeProperties = [
+			this.event.attendee,
+			(this.event as any).attendees,
+			(this.event as any).ATTENDEE,
+			(this.event as any).attendeeList,
+		];
+
+		const attendees = possibleAttendeeProperties.find(
+			(prop) => prop !== undefined
+		);
+
+		if (!attendees) {
+			return [DEFAULT_ATTENDEE];
+		}
+
 		return Array.isArray(attendees) ? attendees : [attendees];
 	}
 
@@ -86,7 +106,10 @@ export class CalendarEvent {
 		let attendeesList = "## Attendees:\n";
 		this.attendees.forEach((attendee: any) => {
 			const attendeeName =
-				attendee.params.CN || this.extractEmailFromVal(attendee.val);
+				attendee.params?.CN ||
+				this.extractEmailFromVal(
+					attendee.val || attendee.value || attendee
+				);
 			attendeesList += `- ${attendeeName}\n`;
 		});
 		return attendeesList;
@@ -108,8 +131,10 @@ export class CalendarEvent {
 	}
 
 	private extractEmailFromVal(val: string): string {
-		const match = val.match(/mailto:(.*)/);
-		return match ? match[1] : "Unknown";
+		if (!val) return "Unknown";
+		const match =
+			val.match(/mailto:(.*)/i) || val.match(/^([^@]+@[^\s]+)$/i);
+		return match ? match[1] : val;
 	}
 }
 
