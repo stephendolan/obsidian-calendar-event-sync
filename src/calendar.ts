@@ -84,7 +84,8 @@ export class CalendarEvent {
 	}
 
 	generateTitle(): string {
-		return this.normalizeEventTitle(this.summary);
+		const formattedDate = this.start.toISOString().split("T")[0];
+		return `📆 ${formattedDate}, ${this.normalizeEventTitle(this.summary)}`;
 	}
 
 	generateDisplayName(): string {
@@ -105,7 +106,9 @@ export class CalendarEvent {
 			hour12: true,
 		});
 		const duration = this.calculateDuration();
-		return `${formattedDate} | ${startTime} | ${duration} | ${this.generateTitle()}`;
+		return `${formattedDate} | ${startTime} | ${duration} | ${this.normalizeEventTitle(
+			this.summary
+		)}`;
 	}
 
 	generateAttendeesListMarkdown(): string {
