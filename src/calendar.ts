@@ -88,12 +88,18 @@ export class CalendarEvent {
 	}
 
 	generateDisplayName(): string {
-		const formattedDate = this.start.toLocaleDateString("en-US", {
+		const localStart = new Date(
+			this.start.toLocaleString("en-US", {
+				timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+			})
+		);
+
+		const formattedDate = localStart.toLocaleDateString("en-US", {
 			weekday: "short",
 			month: "short",
 			day: "numeric",
 		});
-		const startTime = this.start.toLocaleTimeString([], {
+		const startTime = localStart.toLocaleTimeString([], {
 			hour: "2-digit",
 			minute: "2-digit",
 			hour12: true,
@@ -116,7 +122,10 @@ export class CalendarEvent {
 	}
 
 	private calculateDuration(): string {
-		const durationMs = this.end.getTime() - this.start.getTime();
+		const startMs = this.start.getTime();
+		const endMs = this.end.getTime();
+		const durationMs = endMs - startMs;
+
 		const hours = Math.floor(durationMs / 3600000);
 		const minutes = Math.floor((durationMs % 3600000) / 60000);
 		return (
