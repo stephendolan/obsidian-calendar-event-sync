@@ -204,30 +204,21 @@ export class CalendarService {
 		const minimumProcessingDate = new Date(now);
 		minimumProcessingDate.setMonth(minimumProcessingDate.getMonth() - 2);
 
-		const recurringModifications = new Map<string, ical.VEvent>();
-		Object.values(events).forEach((event) => {
-			if (event.type !== "VEVENT" || !event.recurrenceid) return;
-			const recurId = event.uid + event.recurrenceid.toISOString();
-			recurringModifications.set(recurId, event as ical.VEvent);
-		});
-
 		const processedEvents: CalendarEvent[] = [];
 
 		Object.values(events).forEach((event) => {
 			if (event.type !== "VEVENT" || event.recurrenceid) return;
+			const vevent = event as ical.VEvent;
 
-			if (event.rrule && event.type === "VEVENT") {
+			if (vevent.rrule) {
 				const instances = this.expandRecurringEvent(
-					event as ical.VEvent,
-					recurringModifications,
+					vevent,
 					minimumProcessingDate,
 					now
 				);
 				processedEvents.push(...instances);
-			} else if (event.start >= minimumProcessingDate) {
-				processedEvents.push(
-					new CalendarEvent(event as ical.VEvent, this.settings)
-				);
+			} else if (vevent.start >= minimumProcessingDate) {
+				processedEvents.push(new CalendarEvent(vevent, this.settings));
 			}
 		});
 
@@ -238,14 +229,12 @@ export class CalendarService {
 
 	private expandRecurringEvent(
 		baseEvent: ical.VEvent,
-		modifications: Map<string, ical.VEvent>,
 		minimumProcessingDate: Date,
 		now: Date
 	): CalendarEvent[] {
 		if (!baseEvent.rrule) return [];
 
 		const rruleSet = new RRuleSet();
-
 		const options = RRule.parseString(baseEvent.rrule.toString());
 		options.dtstart = baseEvent.start;
 
@@ -271,11 +260,17 @@ export class CalendarService {
 
 		return occurrences
 			.map((date) => {
-				const recurId = baseEvent.uid + date.toISOString();
-				const modifiedEvent = modifications.get(recurId);
+				const dateKey = date.toISOString().split("T")[0];
+				const recurrences: Record<string, ical.VEvent> =
+					(baseEvent as any).recurrences || {};
 
-				if (modifiedEvent) {
-					return new CalendarEvent(modifiedEvent, this.settings);
+				const modification = Object.values(recurrences).find((rec) => {
+					const recDate = new Date(rec.recurrenceid);
+					return recDate.toISOString().split("T")[0] === dateKey;
+				});
+
+				if (modification) {
+					return new CalendarEvent(modification, this.settings);
 				}
 
 				return this.createEventInstance(baseEvent, date);
