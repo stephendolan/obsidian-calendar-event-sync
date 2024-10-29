@@ -204,17 +204,31 @@ export class CalendarService {
 		const minimumProcessingDate = new Date(now);
 		minimumProcessingDate.setMonth(minimumProcessingDate.getMonth() - 2);
 
+		const recurringModifications = new Map<string, ical.VEvent>();
+		Object.values(events).forEach((event) => {
+			if (event.type !== "VEVENT" || !event.recurrenceid) return;
+			const recurId = event.uid + event.recurrenceid.toISOString();
+			recurringModifications.set(recurId, event as ical.VEvent);
+		});
+
 		const processedEvents: CalendarEvent[] = [];
 
 		Object.values(events).forEach((event) => {
-			if (event.type !== "VEVENT") return;
+			if (event.type !== "VEVENT" || event.recurrenceid) return;
 
-			const eventInstances = this.getEventInstances(
-				event,
-				minimumProcessingDate,
-				now
-			);
-			processedEvents.push(...eventInstances);
+			if (event.rrule && event.type === "VEVENT") {
+				const instances = this.expandRecurringEvent(
+					event as ical.VEvent,
+					recurringModifications,
+					minimumProcessingDate,
+					now
+				);
+				processedEvents.push(...instances);
+			} else if (event.start >= minimumProcessingDate) {
+				processedEvents.push(
+					new CalendarEvent(event as ical.VEvent, this.settings)
+				);
+			}
 		});
 
 		return processedEvents.sort(
@@ -222,80 +236,67 @@ export class CalendarService {
 		);
 	}
 
-	private getEventInstances(
-		event: ical.VEvent,
+	private expandRecurringEvent(
+		baseEvent: ical.VEvent,
+		modifications: Map<string, ical.VEvent>,
 		minimumProcessingDate: Date,
 		now: Date
 	): CalendarEvent[] {
-		if (event.rrule) {
-			return this.getRecurringEventInstances(
-				event,
-				minimumProcessingDate,
-				now
-			);
-		} else if (event.start >= minimumProcessingDate) {
-			return [new CalendarEvent(event, this.settings)];
-		}
-		return [];
-	}
-
-	private getRecurringEventInstances(
-		event: ical.VEvent,
-		minimumProcessingDate: Date,
-		now: Date
-	): CalendarEvent[] {
-		if (!event.rrule) return [];
+		if (!baseEvent.rrule) return [];
 
 		const rruleSet = new RRuleSet();
-		const mainRule = RRule.fromString(event.rrule.toString());
+
+		const options = RRule.parseString(baseEvent.rrule.toString());
+		options.dtstart = baseEvent.start;
+
+		const mainRule = new RRule(options);
 		rruleSet.rrule(mainRule);
 
-		const exdates = new Set<string>();
-		if (event.exdate) {
-			const exdateArray = Array.isArray(event.exdate)
-				? event.exdate
-				: [event.exdate];
-			exdateArray.forEach((exdate) => {
-				const exdateStr = new Date(exdate).toISOString();
-				exdates.add(exdateStr);
-				rruleSet.exdate(new Date(exdate));
+		if (baseEvent.exdate) {
+			const exdates = Array.isArray(baseEvent.exdate)
+				? baseEvent.exdate
+				: [baseEvent.exdate];
+			exdates.forEach((exdate) => {
+				const excludedDate = new Date(exdate);
+				rruleSet.exdate(excludedDate);
 			});
 		}
 
+		const futureLimit = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 		const occurrences = rruleSet.between(
 			minimumProcessingDate,
-			new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+			futureLimit,
 			true
 		);
 
 		return occurrences
 			.map((date) => {
-				const dateStr = date.toISOString();
-				if (exdates.has(dateStr)) {
-					return null;
+				const recurId = baseEvent.uid + date.toISOString();
+				const modifiedEvent = modifications.get(recurId);
+
+				if (modifiedEvent) {
+					return new CalendarEvent(modifiedEvent, this.settings);
 				}
-				return this.createEventInstance(event, date);
+
+				return this.createEventInstance(baseEvent, date);
 			})
-			.filter(
-				(event): event is CalendarEvent =>
-					event !== null && this.isValidEventInstance(event)
-			);
+			.filter((event) => this.isValidEventInstance(event));
 	}
 
 	private createEventInstance(
 		originalEvent: ical.VEvent,
 		date: Date
 	): CalendarEvent {
-		const clonedEvent = { ...originalEvent };
+		const clonedEvent = JSON.parse(JSON.stringify(originalEvent));
+
 		const eventDuration =
 			originalEvent.end.getTime() - originalEvent.start.getTime();
 
-		clonedEvent.start = new Date(
-			date.getTime()
-		) as unknown as ical.DateWithTimeZone;
-		clonedEvent.end = new Date(
-			date.getTime() + eventDuration
-		) as unknown as ical.DateWithTimeZone;
+		const newStart = new Date(date.getTime());
+		const newEnd = new Date(date.getTime() + eventDuration);
+
+		clonedEvent.start = newStart as unknown as ical.DateWithTimeZone;
+		clonedEvent.end = newEnd as unknown as ical.DateWithTimeZone;
 
 		return new CalendarEvent(clonedEvent as ical.VEvent, this.settings);
 	}
