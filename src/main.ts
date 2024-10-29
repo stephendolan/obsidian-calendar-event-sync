@@ -112,7 +112,14 @@ export default class CalendarEventSyncPlugin extends Plugin {
 
 	private async addAttendeesToFile(file: TFile, attendeesList: string) {
 		await this.app.vault.process(file, (content) => {
-			if (content.includes(attendeesList)) return content;
+			const attendeesRegex = /## Attendees:\n(?:- [^\n]*\n)*/;
+
+			if (content.match(attendeesRegex)) {
+				// Replace existing attendees section with new one
+				return content.replace(attendeesRegex, attendeesList);
+			}
+
+			// If no existing attendees section, add to top of file
 			return `${attendeesList}\n${content}`;
 		});
 	}
