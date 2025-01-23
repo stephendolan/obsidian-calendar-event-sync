@@ -2,9 +2,9 @@ import { App, PluginSettingTab, Setting } from "obsidian";
 import CalendarEventSyncPlugin from "./main";
 
 export interface PluginSettings {
-	calendarICSUrl?: string;
-	calendarOwnerEmail?: string;
-	ignoredEventTitles?: string[];
+	calendarUrls: string[];
+	calendarOwnerEmails: string[];
+	ignoredEventTitles: string[];
 	eventFutureHourLimit: number;
 	eventRecentHourLimit: number;
 	selectablePastDays: number;
@@ -12,8 +12,8 @@ export interface PluginSettings {
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-	calendarICSUrl: undefined,
-	calendarOwnerEmail: undefined,
+	calendarUrls: [],
+	calendarOwnerEmails: [],
 	ignoredEventTitles: [],
 	eventFutureHourLimit: 4,
 	eventRecentHourLimit: 2,
@@ -33,32 +33,73 @@ export class SettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		new Setting(containerEl)
-			.setName("Calendar ICS URL")
-			.setDesc("The secret URL where we can find your calendar events.")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter your ICS URL")
-					.setValue(this.plugin.settings.calendarICSUrl || "")
+		// Calendar URLs section
+		containerEl.createEl('h2', { text: 'Calendar URLs' });
+		
+		// Existing calendar URLs
+		if (this.plugin.settings.calendarUrls.length === 0) {
+			const noUrlsEl = containerEl.createEl('div', { 
+				cls: 'setting-item-description',
+				text: 'No calendar URLs configured. Add at least one ICS URL to sync events.'
+			});
+			noUrlsEl.style.color = 'var(--text-muted)';
+			noUrlsEl.style.padding = '10px';
+			noUrlsEl.style.textAlign = 'center';
+		}
+
+		this.plugin.settings.calendarUrls.forEach((url, index) => {
+			const setting = new Setting(containerEl)
+				.addText(text => text
+					.setPlaceholder('Enter ICS URL')
+					.setValue(url)
 					.onChange(async (value) => {
-						this.plugin.settings.calendarICSUrl = value;
+						this.plugin.settings.calendarUrls[index] = value;
 						await this.plugin.saveSettings();
 					})
+				)
+				.addButton(button => button
+					.setButtonText('Remove')
+					.onClick(async () => {
+						this.plugin.settings.calendarUrls.splice(index, 1);
+						await this.plugin.saveSettings();
+						this.display(); // Refresh settings view
+					})
+				);
+			
+			// Add custom class for styling
+			setting.settingEl.addClass('calendar-url-setting');
+		});
+
+		// Add new calendar URL button
+		new Setting(containerEl)
+			.addButton(button => button
+				.setButtonText('Add Calendar URL')
+				.onClick(async () => {
+					this.plugin.settings.calendarUrls.push('');
+					await this.plugin.saveSettings();
+					this.display(); // Refresh settings view
+				})
 			);
 
+		// Existing settings sections
 		new Setting(containerEl).setName("Optional").setHeading();
 
 		new Setting(containerEl)
-			.setName("Calendar owner email")
+			.setName("Calendar owner emails")
 			.setDesc(
-				"The email address of the calendar owner. This is used to filter out events that you've declined."
+				"The email addresses of calendar owners. These are used to filter out events that you've declined. Add one email per line."
 			)
-			.addText((text) =>
+			.addTextArea((text) =>
 				text
-					.setPlaceholder("Enter your email address")
-					.setValue(this.plugin.settings.calendarOwnerEmail || "")
+					.setPlaceholder("Enter your email addresses")
+					.setValue(
+						this.plugin.settings.calendarOwnerEmails?.join("\n") ||
+							""
+					)
 					.onChange(async (value) => {
-						this.plugin.settings.calendarOwnerEmail = value;
+						this.plugin.settings.calendarOwnerEmails = value
+							.split("\n")
+							.filter((email) => email.trim() !== "");
 						await this.plugin.saveSettings();
 					})
 			);
@@ -83,6 +124,7 @@ export class SettingTab extends PluginSettingTab {
 					})
 			);
 
+		// Time and range settings
 		new Setting(containerEl)
 			.setName("Quick sync - Past limit (hours)")
 			.setDesc(

@@ -41,7 +41,11 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		}
 
 		try {
-			const events = await this.calendarService.fetchEvents();
+			// Fetch events from all configured URLs
+			await this.calendarService.fetchCalendars(this.settings.calendarUrls);
+			
+			// Get interleaved events from all calendars
+			const events = this.calendarService.getInterleaveedEvents();
 			const relevantEvent = this.calendarService.findClosestEvent(
 				events,
 				this.now()
@@ -72,7 +76,11 @@ export default class CalendarEventSyncPlugin extends Plugin {
 		}
 
 		try {
-			const events = await this.calendarService.fetchEvents();
+			// Fetch events from all configured URLs
+			await this.calendarService.fetchCalendars(this.settings.calendarUrls);
+			
+			// Get interleaved events from all calendars
+			const events = this.calendarService.getInterleaveedEvents();
 			const selectableEvents = this.calendarService.getSelectableEvents(
 				events,
 				this.now()
