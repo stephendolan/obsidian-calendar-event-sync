@@ -45,12 +45,14 @@ export class CalendarEvent {
 	}
 
 	isAttending(): boolean {
-		const calendarOwnerEmail = this.settings.calendarOwnerEmail;
-		if (!calendarOwnerEmail) return true;
+		const calendarOwnerEmails = this.settings.calendarOwnerEmails;
+		
+		// If no owner emails are specified, consider all events
+		if (!calendarOwnerEmails || calendarOwnerEmails.length === 0) return true;
 
 		return this.attendees.some(
 			(attendee: any) =>
-				attendee.params.CN === calendarOwnerEmail &&
+				calendarOwnerEmails.includes(attendee.params.CN) &&
 				attendee.params.PARTSTAT !== "DECLINED"
 		);
 	}
@@ -257,18 +259,60 @@ class RecurringEventExpander {
 
 export class CalendarService {
 	private recurringEventExpander: RecurringEventExpander;
+	private calendars: Map<string, any[]> = new Map();
 
 	constructor(private settings: PluginSettings) {
 		this.recurringEventExpander = new RecurringEventExpander(settings);
 	}
 
-	async fetchEvents(): Promise<CalendarEvent[]> {
-		const icsUrl = this.settings.calendarICSUrl;
-		if (!icsUrl) throw new Error("No ICS URL provided in settings.");
+	async fetchCalendars(urls: string[]) {
+		this.calendars.clear();
 
-		const response = await request({ url: icsUrl, method: "GET" });
-		const events = ical.sync.parseICS(response);
-		return this.processEvents(events);
+		const fetchPromises = urls.map(async (url) => {
+			try {
+				const response = await request({ url, method: "GET" });
+				const parsedEvents = ical.sync.parseICS(response);
+				const processedEvents = this.processICSEvents(parsedEvents, url);
+				this.calendars.set(url, processedEvents);
+			} catch (error) {
+				console.error(`Error fetching calendar from ${url}:`, error);
+			}
+		});
+
+		await Promise.all(fetchPromises);
+	}
+
+	private processICSEvents(events: ical.CalendarResponse, sourceUrl: string): CalendarEvent[] {
+		const now = new Date();
+		const minimumProcessingDate = new Date(now);
+		minimumProcessingDate.setMonth(minimumProcessingDate.getMonth() - 2);
+
+		const processedEvents: CalendarEvent[] = [];
+
+		Object.values(events).forEach((event) => {
+			if (event.type !== "VEVENT" || event.recurrenceid) return;
+			const vevent = event as ical.VEvent;
+
+			if (vevent.rrule) {
+				// Expand recurring events
+				const instances = this.recurringEventExpander.expandEvent(
+					vevent,
+					minimumProcessingDate,
+					now
+				);
+				processedEvents.push(...instances);
+			} else if (vevent.start >= minimumProcessingDate) {
+				processedEvents.push(new CalendarEvent(vevent, this.settings));
+			}
+		});
+
+		return processedEvents;
+	}
+
+	getInterleaveedEvents(): CalendarEvent[] {
+		const allEvents = Array.from(this.calendars.values()).flat();
+		
+		return allEvents.sort((a, b) => a.start.getTime() - b.start.getTime());
 	}
 
 	findClosestEvent(events: CalendarEvent[], now: Date): CalendarEvent | null {
@@ -308,34 +352,6 @@ export class CalendarService {
 				!event.isIgnored() &&
 				event.start >= pastLimit &&
 				event.start <= futureLimit
-		);
-	}
-
-	private processEvents(events: ical.CalendarResponse): CalendarEvent[] {
-		const now = new Date();
-		const minimumProcessingDate = new Date(now);
-		minimumProcessingDate.setMonth(minimumProcessingDate.getMonth() - 2);
-
-		const processedEvents: CalendarEvent[] = [];
-
-		Object.values(events).forEach((event) => {
-			if (event.type !== "VEVENT" || event.recurrenceid) return;
-			const vevent = event as ical.VEvent;
-
-			if (vevent.rrule) {
-				const instances = this.recurringEventExpander.expandEvent(
-					vevent,
-					minimumProcessingDate,
-					now
-				);
-				processedEvents.push(...instances);
-			} else if (vevent.start >= minimumProcessingDate) {
-				processedEvents.push(new CalendarEvent(vevent, this.settings));
-			}
-		});
-
-		return processedEvents.sort(
-			(a, b) => a.start.getTime() - b.start.getTime()
 		);
 	}
 }
