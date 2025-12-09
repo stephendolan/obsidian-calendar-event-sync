@@ -5,6 +5,7 @@ import { request } from "obsidian";
 
 const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * MS_PER_HOUR;
+const FETCH_TIMEOUT_MS = 10000;
 
 export class CalendarEvent {
 	constructor(private event: ical.VEvent, private settings: PluginSettings) {}
@@ -166,11 +167,21 @@ export class CalendarService {
 
 	async fetchEvents(): Promise<CalendarEvent[]> {
 		const icsUrl = this.settings.calendarICSUrl;
-		if (!icsUrl) throw new Error("No ICS URL provided in settings.");
+		if (!icsUrl || icsUrl.trim() === "")
+			throw new Error("No ICS URL provided in settings.");
 
 		let response: string;
 		try {
-			response = await request({ url: icsUrl, method: "GET" });
+			const timeoutPromise = new Promise<never>((_, reject) =>
+				setTimeout(
+					() => reject(new Error("Calendar fetch timed out")),
+					FETCH_TIMEOUT_MS
+				)
+			);
+			response = (await Promise.race([
+				request({ url: icsUrl, method: "GET" }),
+				timeoutPromise,
+			])) as string;
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Unknown error";

@@ -120,5 +120,6 @@ export default class CalendarEventSyncPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		this.calendarService = new CalendarService(this.settings);
 	}
 }
