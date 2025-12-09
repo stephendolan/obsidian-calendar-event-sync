@@ -161,127 +161,8 @@ export class CalendarEvent {
 	}
 }
 
-class RecurringEventExpander {
-	constructor(private settings: PluginSettings) {}
-
-	expandEvent(
-		baseEvent: ical.VEvent,
-		minimumProcessingDate: Date,
-		now: Date
-	): CalendarEvent[] {
-		if (!baseEvent.rrule) return [];
-
-		const occurrences = this.generateOccurrenceDates(
-			baseEvent,
-			minimumProcessingDate,
-			now
-		);
-
-		return occurrences
-			.map((date) => this.createOccurrence(baseEvent, date))
-			.filter((event) => this.isValidOccurrence(event));
-	}
-
-	private generateOccurrenceDates(
-		baseEvent: ical.VEvent,
-		minimumProcessingDate: Date,
-		now: Date
-	): Date[] {
-		if (!baseEvent.rrule) return [];
-
-		try {
-			const rruleSet = new RRuleSet();
-			const options = RRule.parseString(baseEvent.rrule.toString());
-			options.dtstart = baseEvent.start;
-
-			const mainRule = new RRule(options);
-			rruleSet.rrule(mainRule);
-
-			this.addExcludedDates(rruleSet, baseEvent);
-
-			const futureLimit = new Date(now.getTime() + 30 * MS_PER_DAY);
-			return rruleSet.between(minimumProcessingDate, futureLimit, true);
-		} catch (error) {
-			console.warn(
-				`Invalid recurrence rule for event "${baseEvent.summary}":`,
-				error
-			);
-			return [];
-		}
-	}
-
-	private addExcludedDates(rruleSet: RRuleSet, event: ical.VEvent): void {
-		if (!event.exdate) return;
-
-		const exdates = Array.isArray(event.exdate)
-			? event.exdate
-			: [event.exdate];
-
-		exdates.forEach((exdate) => {
-			rruleSet.exdate(new Date(exdate));
-		});
-	}
-
-	private createOccurrence(
-		baseEvent: ical.VEvent,
-		date: Date
-	): CalendarEvent {
-		const modification = this.findModification(baseEvent, date);
-		if (modification) {
-			return new CalendarEvent(modification, this.settings);
-		}
-
-		return this.createBasicOccurrence(baseEvent, date);
-	}
-
-	private findModification(
-		baseEvent: ical.VEvent,
-		date: Date
-	): ical.VEvent | null {
-		const dateKey = date.toISOString().split("T")[0];
-		const recurrences: Record<string, ical.VEvent> =
-			(baseEvent as any).recurrences || {};
-
-		return (
-			Object.values(recurrences).find((rec) => {
-				const recDate = new Date(rec.recurrenceid);
-				return recDate.toISOString().split("T")[0] === dateKey;
-			}) || null
-		);
-	}
-
-	private createBasicOccurrence(
-		originalEvent: ical.VEvent,
-		date: Date
-	): CalendarEvent {
-		const eventDuration =
-			originalEvent.end.getTime() - originalEvent.start.getTime();
-
-		const newStart = new Date(date.getTime());
-		const newEnd = new Date(date.getTime() + eventDuration);
-
-		const occurrenceEvent: ical.VEvent = {
-			...originalEvent,
-			start: newStart as ical.DateWithTimeZone,
-			end: newEnd as ical.DateWithTimeZone,
-		};
-
-		return new CalendarEvent(occurrenceEvent, this.settings);
-	}
-
-	private isValidOccurrence(event: CalendarEvent): boolean {
-		return (
-			event.isAttending() && !event.isIgnored() && !event.isCancelled()
-		);
-	}
-}
-
 export class CalendarService {
-	private recurringEventExpander: RecurringEventExpander;
-
-	constructor(private settings: PluginSettings) {
-		this.recurringEventExpander = new RecurringEventExpander(settings);
-	}
+	constructor(private settings: PluginSettings) {}
 
 	async fetchEvents(): Promise<CalendarEvent[]> {
 		const icsUrl = this.settings.calendarICSUrl;
@@ -358,7 +239,7 @@ export class CalendarService {
 			const vevent = event as ical.VEvent;
 
 			if (vevent.rrule) {
-				const instances = this.recurringEventExpander.expandEvent(
+				const instances = this.expandRecurringEvent(
 					vevent,
 					minimumProcessingDate,
 					now
@@ -372,5 +253,96 @@ export class CalendarService {
 		return processedEvents.sort(
 			(a, b) => a.start.getTime() - b.start.getTime()
 		);
+	}
+
+	private expandRecurringEvent(
+		baseEvent: ical.VEvent,
+		minimumProcessingDate: Date,
+		now: Date
+	): CalendarEvent[] {
+		if (!baseEvent.rrule) return [];
+
+		const occurrences = this.generateOccurrenceDates(
+			baseEvent,
+			minimumProcessingDate,
+			now
+		);
+
+		return occurrences
+			.map((date) => this.createOccurrence(baseEvent, date))
+			.filter(
+				(event) =>
+					event.isAttending() &&
+					!event.isIgnored() &&
+					!event.isCancelled()
+			);
+	}
+
+	private generateOccurrenceDates(
+		baseEvent: ical.VEvent,
+		minimumProcessingDate: Date,
+		now: Date
+	): Date[] {
+		if (!baseEvent.rrule) return [];
+
+		try {
+			const rruleSet = new RRuleSet();
+			const options = RRule.parseString(baseEvent.rrule.toString());
+			options.dtstart = baseEvent.start;
+
+			const mainRule = new RRule(options);
+			rruleSet.rrule(mainRule);
+
+			if (baseEvent.exdate) {
+				const exdates = Array.isArray(baseEvent.exdate)
+					? baseEvent.exdate
+					: [baseEvent.exdate];
+
+				exdates.forEach((exdate) => {
+					rruleSet.exdate(new Date(exdate));
+				});
+			}
+
+			const futureLimit = new Date(now.getTime() + 30 * MS_PER_DAY);
+			return rruleSet.between(minimumProcessingDate, futureLimit, true);
+		} catch (error) {
+			console.warn(
+				`Invalid recurrence rule for event "${baseEvent.summary}":`,
+				error
+			);
+			return [];
+		}
+	}
+
+	private createOccurrence(
+		baseEvent: ical.VEvent,
+		date: Date
+	): CalendarEvent {
+		const dateKey = date.toISOString().split("T")[0];
+		const recurrences: Record<string, ical.VEvent> =
+			(baseEvent as any).recurrences || {};
+
+		const modification = Object.values(recurrences).find((rec) => {
+			const recDate = new Date(rec.recurrenceid);
+			return recDate.toISOString().split("T")[0] === dateKey;
+		});
+
+		if (modification) {
+			return new CalendarEvent(modification, this.settings);
+		}
+
+		const eventDuration =
+			baseEvent.end.getTime() - baseEvent.start.getTime();
+
+		const newStart = new Date(date.getTime());
+		const newEnd = new Date(date.getTime() + eventDuration);
+
+		const occurrenceEvent: ical.VEvent = {
+			...baseEvent,
+			start: newStart as ical.DateWithTimeZone,
+			end: newEnd as ical.DateWithTimeZone,
+		};
+
+		return new CalendarEvent(occurrenceEvent, this.settings);
 	}
 }

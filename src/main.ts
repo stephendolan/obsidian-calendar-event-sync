@@ -1,19 +1,15 @@
-import { Plugin, TFile } from "obsidian";
+import { Notice, Plugin, TFile } from "obsidian";
 import { PluginSettings, DEFAULT_SETTINGS, SettingTab } from "./settings";
-import { UIManager } from "./interface";
+import { EventChoiceModal } from "./interface";
 import { CalendarEvent, CalendarService } from "./calendar";
-
-const DEBUGGING = false;
 
 export default class CalendarEventSyncPlugin extends Plugin {
 	settings: PluginSettings;
 	calendarService: CalendarService;
-	uiManager: UIManager;
 
 	async onload() {
 		await this.loadSettings();
 		this.calendarService = new CalendarService(this.settings);
-		this.uiManager = new UIManager(this.app);
 
 		this.addCommand({
 			id: "sync-with-closest-event",
@@ -33,10 +29,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 	async updateNoteFromCalendarEvent() {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile) {
-			this.uiManager.displayNotice(
-				"No active note found. Please open a note first.",
-				5000
-			);
+			new Notice("No active note found. Please open a note first.", 5000);
 			return;
 		}
 
@@ -44,17 +37,14 @@ export default class CalendarEventSyncPlugin extends Plugin {
 			const events = await this.calendarService.fetchEvents();
 			const relevantEvent = this.calendarService.findClosestEvent(
 				events,
-				this.now()
+				new Date()
 			);
 
 			if (relevantEvent) {
 				await this.syncNoteWithEvent(activeFile, relevantEvent);
-				this.uiManager.displayNotice("Event synced with note.", 5000);
+				new Notice("Event synced with note.", 5000);
 			} else {
-				this.uiManager.displayNotice(
-					"No relevant events found to sync with.",
-					5000
-				);
+				new Notice("No relevant events found to sync with.", 5000);
 			}
 		} catch (error) {
 			this.handleError(error);
@@ -64,10 +54,7 @@ export default class CalendarEventSyncPlugin extends Plugin {
 	async listCalendarEvents() {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile) {
-			this.uiManager.displayNotice(
-				"No active note found. Please open a note first.",
-				5000
-			);
+			new Notice("No active note found. Please open a note first.", 5000);
 			return;
 		}
 
@@ -75,95 +62,52 @@ export default class CalendarEventSyncPlugin extends Plugin {
 			const events = await this.calendarService.fetchEvents();
 			const selectableEvents = this.calendarService.getSelectableEvents(
 				events,
-				this.now()
+				new Date()
 			);
 
 			if (selectableEvents.length === 0) {
-				this.uiManager.displayNotice(
+				new Notice(
 					"No events found for the specified time range.",
 					5000
 				);
 				return;
 			}
 
-			const eventChoices = selectableEvents.map((event) => ({
-				label: event.generateDisplayName(),
-				value: event,
-			}));
-
-			await this.uiManager.showEventSelectionModal(
-				eventChoices,
+			new EventChoiceModal(
+				this.app,
+				selectableEvents,
 				(selectedEvent) =>
 					this.syncNoteWithEvent(activeFile, selectedEvent)
-			);
+			).open();
 		} catch (error) {
 			this.handleError(error);
 		}
 	}
 
 	private async syncNoteWithEvent(file: TFile, event: CalendarEvent) {
-		await this.addAttendeesToFile(
-			file,
-			event.generateAttendeesListMarkdown()
-		);
+		const attendeesRegex = /## Attendees:\n(?:- [^\n]*\n)*/;
+		const attendeesList = event.generateAttendeesListMarkdown();
 
-		await this.renameFile(file, event.generateTitle());
-	}
-
-	private async addAttendeesToFile(file: TFile, attendeesList: string) {
 		await this.app.vault.process(file, (content) => {
-			const attendeesRegex = /## Attendees:\n(?:- [^\n]*\n)*/;
-
 			if (content.match(attendeesRegex)) {
-				// Replace existing attendees section with new one
 				return content.replace(attendeesRegex, attendeesList);
 			}
-
-			// If no existing attendees section, add to top of file
 			return `${attendeesList}\n${content}`;
 		});
-	}
 
-	private async renameFile(file: TFile, newTitle: string) {
-		const filePathParts = file.path.split("/");
-		filePathParts[filePathParts.length - 1] = `${newTitle}.md`;
-		const newFilePath = filePathParts.join("/");
-		await this.app.vault.rename(file, newFilePath);
-	}
-
-	private displayNotice(message: string, timeout: number) {
-		this.uiManager.displayNotice(message, timeout);
+		const newPath = file.path.replace(
+			/[^/]+$/,
+			`${event.generateTitle()}.md`
+		);
+		await this.app.vault.rename(file, newPath);
 	}
 
 	private handleError(error: any) {
 		console.error("Calendar Event Sync Error:", error);
-		if (error.message.includes("404")) {
-			this.uiManager.displayNotice(
-				"Couldn't sync with calendar events. Make sure your ICS URL is correct in the plugin settings.",
-				0
-			);
-		} else {
-			this.uiManager.displayNotice(
-				`Couldn't sync with calendar event: ${error.message}`,
-				0
-			);
-		}
-	}
-
-	private now(): Date {
-		const currentDate = new Date();
-		if (DEBUGGING) {
-			return new Date(
-				currentDate.getFullYear(),
-				currentDate.getMonth(),
-				currentDate.getDate(),
-				14,
-				15,
-				0,
-				0
-			);
-		}
-		return currentDate;
+		const message = error.message?.includes("404")
+			? "Couldn't sync with calendar events. Make sure your ICS URL is correct in the plugin settings."
+			: `Couldn't sync with calendar event: ${error.message}`;
+		new Notice(message, 0);
 	}
 
 	async loadSettings() {

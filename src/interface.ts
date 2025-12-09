@@ -1,19 +1,21 @@
 import { App, Modal, Notice } from "obsidian";
-
-type AsyncCallback<T> = (value: T) => Promise<void> | void;
 import { CalendarEvent } from "./calendar";
 
+type AsyncCallback<T> = (value: T) => Promise<void> | void;
+
 export class EventChoiceModal extends Modal {
-	eventChoices: { label: string; value: CalendarEvent }[];
+	eventChoices: CalendarEvent[];
 	onChoose: AsyncCallback<CalendarEvent>;
 
 	constructor(
 		app: App,
-		eventChoices: { label: string; value: CalendarEvent }[],
+		eventChoices: CalendarEvent[],
 		onChoose: AsyncCallback<CalendarEvent>
 	) {
 		super(app);
-		this.eventChoices = this.sortEventChoices(eventChoices);
+		this.eventChoices = eventChoices.sort(
+			(a, b) => a.start.getTime() - b.start.getTime()
+		);
 		this.onChoose = onChoose;
 	}
 
@@ -25,30 +27,44 @@ export class EventChoiceModal extends Modal {
 
 		const eventList = contentEl.createEl("div", { cls: "event-list" });
 
-		this.eventChoices.forEach((choice) => {
+		this.eventChoices.forEach((event) => {
 			const eventEl = eventList.createEl("div", { cls: "event-choice" });
 
-			const displayName = choice.value.generateDisplayName();
-			const [date, time, duration, title] = displayName.split(" | ");
-
 			const eventInfo = eventEl.createEl("div", { cls: "event-info" });
-			eventInfo.createEl("div", { cls: "event-title", text: title });
+			eventInfo.createEl("div", {
+				cls: "event-title",
+				text: event.summary,
+			});
 
 			const eventDetails = eventInfo.createEl("div", {
 				cls: "event-details",
 			});
-			eventDetails.createEl("span", { cls: "event-date", text: date });
-			eventDetails.createEl("span", { cls: "event-time", text: time });
+			eventDetails.createEl("span", {
+				cls: "event-date",
+				text: event.start.toLocaleDateString("en-US", {
+					weekday: "short",
+					month: "short",
+					day: "numeric",
+				}),
+			});
+			eventDetails.createEl("span", {
+				cls: "event-time",
+				text: event.start.toLocaleTimeString([], {
+					hour: "2-digit",
+					minute: "2-digit",
+					hour12: true,
+				}),
+			});
 			eventDetails.createEl("span", {
 				cls: "event-duration",
-				text: duration,
+				text: this.formatDuration(event),
 			});
 
 			const selectButton = eventEl.createEl("button", { text: "Select" });
 
 			selectButton.addEventListener("click", async () => {
 				try {
-					await this.onChoose(choice.value);
+					await this.onChoose(event);
 					this.close();
 				} catch (error) {
 					new Notice(
@@ -59,31 +75,22 @@ export class EventChoiceModal extends Modal {
 		});
 	}
 
-	private sortEventChoices(
-		choices: { label: string; value: CalendarEvent }[]
-	): { label: string; value: CalendarEvent }[] {
-		return choices.sort(
-			(a, b) => a.value.start.getTime() - b.value.start.getTime()
-		);
+	private formatDuration(event: CalendarEvent): string {
+		const durationMs = event.end.getTime() - event.start.getTime();
+		const hours = Math.floor(durationMs / (1000 * 60 * 60));
+		const minutes = Math.floor((durationMs % (1000 * 60 * 60)) / (1000 * 60));
+
+		if (hours > 0 && minutes > 0) {
+			return `${hours}h ${minutes}m`;
+		} else if (hours > 0) {
+			return `${hours}h`;
+		} else {
+			return `${minutes}m`;
+		}
 	}
 
 	onClose() {
 		const { contentEl } = this;
 		contentEl.empty();
-	}
-}
-
-export class UIManager {
-	constructor(private app: App) {}
-
-	displayNotice(message: string, timeout: number) {
-		new Notice(message, timeout);
-	}
-
-	async showEventSelectionModal(
-		eventChoices: { label: string; value: CalendarEvent }[],
-		onChoose: AsyncCallback<CalendarEvent>
-	) {
-		new EventChoiceModal(this.app, eventChoices, onChoose).open();
 	}
 }
