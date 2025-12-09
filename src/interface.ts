@@ -1,14 +1,16 @@
 import { App, Modal, Notice } from "obsidian";
+
+type AsyncCallback<T> = (value: T) => Promise<void> | void;
 import { CalendarEvent } from "./calendar";
 
 export class EventChoiceModal extends Modal {
 	eventChoices: { label: string; value: CalendarEvent }[];
-	onChoose: (selectedEvent: CalendarEvent) => void;
+	onChoose: AsyncCallback<CalendarEvent>;
 
 	constructor(
 		app: App,
 		eventChoices: { label: string; value: CalendarEvent }[],
-		onChoose: (selectedEvent: CalendarEvent) => void
+		onChoose: AsyncCallback<CalendarEvent>
 	) {
 		super(app);
 		this.eventChoices = this.sortEventChoices(eventChoices);
@@ -44,9 +46,15 @@ export class EventChoiceModal extends Modal {
 
 			const selectButton = eventEl.createEl("button", { text: "Select" });
 
-			selectButton.addEventListener("click", () => {
-				this.onChoose(choice.value);
-				this.close();
+			selectButton.addEventListener("click", async () => {
+				try {
+					await this.onChoose(choice.value);
+					this.close();
+				} catch (error) {
+					new Notice(
+						`Failed to sync event: ${error instanceof Error ? error.message : "Unknown error"}`
+					);
+				}
 			});
 		});
 	}
@@ -103,7 +111,7 @@ export class UIManager {
 
 	async showEventSelectionModal(
 		eventChoices: { label: string; value: CalendarEvent }[],
-		onChoose: (selectedEvent: CalendarEvent) => void
+		onChoose: AsyncCallback<CalendarEvent>
 	) {
 		new EventChoiceModal(this.app, eventChoices, onChoose).open();
 	}

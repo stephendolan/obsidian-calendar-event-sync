@@ -94,7 +94,7 @@ export class SettingTab extends PluginSettingTab {
 					.setValue(String(this.plugin.settings.eventRecentHourLimit))
 					.onChange(async (value) => {
 						this.plugin.settings.eventRecentHourLimit =
-							Number(value);
+							parseInt(value, 10) || DEFAULT_SETTINGS.eventRecentHourLimit;
 						await this.plugin.saveSettings();
 					})
 			);
@@ -112,7 +112,7 @@ export class SettingTab extends PluginSettingTab {
 					)
 					.onChange(async (value) => {
 						this.plugin.settings.eventFutureHourLimit =
-							Number(value);
+							parseInt(value, 10) || DEFAULT_SETTINGS.eventFutureHourLimit;
 						await this.plugin.saveSettings();
 					})
 			);
@@ -127,7 +127,8 @@ export class SettingTab extends PluginSettingTab {
 					.setPlaceholder("Enter number of days")
 					.setValue(String(this.plugin.settings.selectablePastDays))
 					.onChange(async (value) => {
-						this.plugin.settings.selectablePastDays = Number(value);
+						this.plugin.settings.selectablePastDays =
+							parseInt(value, 10) || DEFAULT_SETTINGS.selectablePastDays;
 						await this.plugin.saveSettings();
 					})
 			);
@@ -143,7 +144,7 @@ export class SettingTab extends PluginSettingTab {
 					.setValue(String(this.plugin.settings.selectableFutureDays))
 					.onChange(async (value) => {
 						this.plugin.settings.selectableFutureDays =
-							Number(value);
+							parseInt(value, 10) || DEFAULT_SETTINGS.selectableFutureDays;
 						await this.plugin.saveSettings();
 					})
 			);

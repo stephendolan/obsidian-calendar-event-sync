@@ -178,17 +178,25 @@ class RecurringEventExpander {
 	): Date[] {
 		if (!baseEvent.rrule) return [];
 
-		const rruleSet = new RRuleSet();
-		const options = RRule.parseString(baseEvent.rrule.toString());
-		options.dtstart = baseEvent.start;
+		try {
+			const rruleSet = new RRuleSet();
+			const options = RRule.parseString(baseEvent.rrule.toString());
+			options.dtstart = baseEvent.start;
 
-		const mainRule = new RRule(options);
-		rruleSet.rrule(mainRule);
+			const mainRule = new RRule(options);
+			rruleSet.rrule(mainRule);
 
-		this.addExcludedDates(rruleSet, baseEvent);
+			this.addExcludedDates(rruleSet, baseEvent);
 
-		const futureLimit = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-		return rruleSet.between(minimumProcessingDate, futureLimit, true);
+			const futureLimit = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+			return rruleSet.between(minimumProcessingDate, futureLimit, true);
+		} catch (error) {
+			console.warn(
+				`Invalid recurrence rule for event "${baseEvent.summary}":`,
+				error
+			);
+			return [];
+		}
 	}
 
 	private addExcludedDates(rruleSet: RRuleSet, event: ical.VEvent): void {
@@ -235,17 +243,19 @@ class RecurringEventExpander {
 		originalEvent: ical.VEvent,
 		date: Date
 	): CalendarEvent {
-		const clonedEvent = JSON.parse(JSON.stringify(originalEvent));
 		const eventDuration =
 			originalEvent.end.getTime() - originalEvent.start.getTime();
 
 		const newStart = new Date(date.getTime());
 		const newEnd = new Date(date.getTime() + eventDuration);
 
-		clonedEvent.start = newStart as unknown as ical.DateWithTimeZone;
-		clonedEvent.end = newEnd as unknown as ical.DateWithTimeZone;
+		const occurrenceEvent: ical.VEvent = {
+			...originalEvent,
+			start: newStart as ical.DateWithTimeZone,
+			end: newEnd as ical.DateWithTimeZone,
+		};
 
-		return new CalendarEvent(clonedEvent as ical.VEvent, this.settings);
+		return new CalendarEvent(occurrenceEvent, this.settings);
 	}
 
 	private isValidOccurrence(event: CalendarEvent): boolean {
@@ -266,8 +276,24 @@ export class CalendarService {
 		const icsUrl = this.settings.calendarICSUrl;
 		if (!icsUrl) throw new Error("No ICS URL provided in settings.");
 
-		const response = await request({ url: icsUrl, method: "GET" });
-		const events = ical.sync.parseICS(response);
+		let response: string;
+		try {
+			response = await request({ url: icsUrl, method: "GET" });
+		} catch (error) {
+			const message =
+				error instanceof Error ? error.message : "Unknown error";
+			throw new Error(`Failed to fetch calendar: ${message}`);
+		}
+
+		let events: ical.CalendarResponse;
+		try {
+			events = ical.sync.parseICS(response);
+		} catch (error) {
+			throw new Error(
+				"Failed to parse calendar data. The ICS file may be malformed."
+			);
+		}
+
 		return this.processEvents(events);
 	}
 
