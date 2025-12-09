@@ -3,6 +3,9 @@ import { RRule, RRuleSet } from "rrule";
 import { PluginSettings } from "./settings";
 import { request } from "obsidian";
 
+const MS_PER_HOUR = 60 * 60 * 1000;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+
 export class CalendarEvent {
 	constructor(private event: ical.VEvent, private settings: PluginSettings) {}
 
@@ -71,29 +74,37 @@ export class CalendarEvent {
 
 	isUpcoming(now: Date): boolean {
 		const futureStartLimit = new Date(
-			now.getTime() + this.settings.eventFutureHourLimit * 60 * 60 * 1000
+			now.getTime() + this.settings.eventFutureHourLimit * MS_PER_HOUR
 		);
 		return now < this.start && this.start <= futureStartLimit;
 	}
 
 	isRecent(now: Date): boolean {
 		const pastEndLimit = new Date(
-			now.getTime() - this.settings.eventRecentHourLimit * 60 * 60 * 1000
+			now.getTime() - this.settings.eventRecentHourLimit * MS_PER_HOUR
 		);
 		return pastEndLimit <= this.end && this.end < now;
 	}
 
-	generateTitle(): string {
-		const formattedDate = this.start.toISOString().split("T")[0];
-		return `📆 ${formattedDate}, ${this.normalizeEventTitle(this.summary)}`;
-	}
-
-	generateDisplayName(): string {
-		const localStart = new Date(
+	private getLocalStart(): Date {
+		return new Date(
 			this.start.toLocaleString("en-US", {
 				timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 			})
 		);
+	}
+
+	generateTitle(): string {
+		const localStart = this.getLocalStart();
+		const year = localStart.getFullYear();
+		const month = String(localStart.getMonth() + 1).padStart(2, "0");
+		const day = String(localStart.getDate()).padStart(2, "0");
+		const formattedDate = `${year}-${month}-${day}`;
+		return `📆 ${formattedDate}, ${this.normalizeEventTitle(this.summary)}`;
+	}
+
+	generateDisplayName(): string {
+		const localStart = this.getLocalStart();
 
 		const formattedDate = localStart.toLocaleDateString("en-US", {
 			weekday: "short",
@@ -188,7 +199,7 @@ class RecurringEventExpander {
 
 			this.addExcludedDates(rruleSet, baseEvent);
 
-			const futureLimit = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+			const futureLimit = new Date(now.getTime() + 30 * MS_PER_DAY);
 			return rruleSet.between(minimumProcessingDate, futureLimit, true);
 		} catch (error) {
 			console.warn(
@@ -320,12 +331,10 @@ export class CalendarService {
 
 	getSelectableEvents(events: CalendarEvent[], now: Date): CalendarEvent[] {
 		const pastLimit = new Date(
-			now.getTime() -
-				this.settings.selectablePastDays * 24 * 60 * 60 * 1000
+			now.getTime() - this.settings.selectablePastDays * MS_PER_DAY
 		);
 		const futureLimit = new Date(
-			now.getTime() +
-				this.settings.selectableFutureDays * 24 * 60 * 60 * 1000
+			now.getTime() + this.settings.selectableFutureDays * MS_PER_DAY
 		);
 
 		return events.filter(

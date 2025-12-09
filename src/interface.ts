@@ -62,38 +62,9 @@ export class EventChoiceModal extends Modal {
 	private sortEventChoices(
 		choices: { label: string; value: CalendarEvent }[]
 	): { label: string; value: CalendarEvent }[] {
-		return choices.sort((a, b) => {
-			const [dateA, timeA] = a.label.split(" | ");
-			const [dateB, timeB] = b.label.split(" | ");
-
-			const dateCompareA = new Date(dateA);
-			const dateCompareB = new Date(dateB);
-			const dateCompare = dateCompareA.getTime() - dateCompareB.getTime();
-			if (dateCompare !== 0) return dateCompare;
-
-			return this.compareTime(timeA, timeB);
-		});
-	}
-
-	private compareTime(timeA: string, timeB: string): number {
-		const [hoursA, minutesA] = this.convertTo24Hour(timeA);
-		const [hoursB, minutesB] = this.convertTo24Hour(timeB);
-
-		if (hoursA !== hoursB) return hoursA - hoursB;
-		return minutesA - minutesB;
-	}
-
-	private convertTo24Hour(time: string): [number, number] {
-		const [timeStr, period] = time.split(" ");
-		let [hours, minutes] = timeStr.split(":").map(Number);
-
-		if (period === "PM" && hours !== 12) {
-			hours += 12;
-		} else if (period === "AM" && hours === 12) {
-			hours = 0;
-		}
-
-		return [hours, minutes];
+		return choices.sort(
+			(a, b) => a.value.start.getTime() - b.value.start.getTime()
+		);
 	}
 
 	onClose() {

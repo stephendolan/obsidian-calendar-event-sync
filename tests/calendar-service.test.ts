@@ -1,35 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { CalendarEvent, CalendarService } from "../src/calendar";
-import { PluginSettings, DEFAULT_SETTINGS } from "../src/settings";
 import * as ical from "node-ical";
-
-function createMockEvent(overrides: Partial<ical.VEvent> = {}): ical.VEvent {
-	const now = new Date();
-	const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
-
-	return {
-		type: "VEVENT",
-		summary: "Test Meeting",
-		start: now,
-		end: oneHourLater,
-		status: "CONFIRMED",
-		...overrides,
-	} as ical.VEvent;
-}
-
-function createSettings(overrides: Partial<PluginSettings> = {}): PluginSettings {
-	return { ...DEFAULT_SETTINGS, ...overrides };
-}
-
-function createCalendarEvent(
-	eventOverrides: Partial<ical.VEvent> = {},
-	settingsOverrides: Partial<PluginSettings> = {}
-): CalendarEvent {
-	return new CalendarEvent(
-		createMockEvent(eventOverrides),
-		createSettings(settingsOverrides)
-	);
-}
+import {
+	createMockEvent,
+	createSettings,
+	createCalendarEvent,
+} from "./helpers/test-factories";
 
 describe("CalendarService", () => {
 	describe("findClosestEvent", () => {
