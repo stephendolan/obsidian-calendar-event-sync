@@ -35,7 +35,30 @@ npm version minor && git push && git push --tags  # 2.1.0 → 2.2.0
 npm version major && git push && git push --tags  # 2.1.0 → 3.0.0
 ```
 
-This updates all version files, creates a commit and tag, and triggers GitHub Actions to build a draft release. Publish the draft on GitHub with release notes.
+This updates all version files, creates a commit and tag, and triggers GitHub Actions to build a draft release.
+
+**After the draft is created**, review commits since the last release and publish with notes:
+
+```bash
+git log $(git describe --tags --abbrev=0 HEAD^)..HEAD --oneline  # See what's in the release
+gh release edit <version> --draft=false --notes "$(cat <<'EOF'
+## Fixed
+- Description of fix
+
+## Added
+- Description of new feature
+
+## Changed
+- Description of change
+EOF
+)"
+```
+
+Release notes format (match existing releases):
+- Use `## Fixed`, `## Added`, `## Changed` sections as needed
+- Keep descriptions concise (one line each)
+- For major releases, add a `## Summary` section at the top
+- Omit sections with no changes
 
 ## Testing
 
