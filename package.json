@@ -1,6 +1,6 @@
 {
 	"name": "calendar-event-sync",
-	"version": "2.1.1",
+	"version": "2.1.2",
 	"description": "Sync a relevant calendar event to your current note.",
 	"main": "main.js",
 	"scripts": {
